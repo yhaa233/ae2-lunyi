@@ -1,0 +1,27 @@
+{
+  "itemGroup.ae2_lunyi": "Example Mod Tab",
+  "block.ae2_lunyi.example_block": "Example Block",
+  "item.ae2_lunyi.example_item": "Example Item",
+
+  "entity.ae2_lunyi.wheelchair": "Wheelchair",
+  "item.ae2_lunyi.wheelchair_spawn_egg": "Wheelchair Spawn Egg",
+  "key.categories.ae2_lunyi": "Wheelchair",
+  "key.ae2_lunyi.dismount": "Dismount Wheelchair",
+  "message.ae2_lunyi.no_terminal": "No ME network nearby - park the wheelchair next to a cable",
+  "message.ae2_lunyi.no_network": "Not connected to an ME network",
+  "message.ae2_lunyi.bound": "Bound to a quantum network bridge",
+  "message.ae2_lunyi.bridge_offline": "The bound quantum bridge is not connected (check that it is formed and that it holds the paired singularity)",
+  "message.ae2_lunyi.pattern_added": "Pattern stored (%s in total)",
+  "block.ae2_lunyi.wheelchair_cpu": "Wheelchair Crafting Core",
+  "block.ae2_lunyi.pattern_store": "Wheelchair Pattern Store",
+  "message.ae2_lunyi.uploaded": "Uploaded %s patterns",
+  "gui.ae2_lunyi.pattern_store": "Open Pattern Store",
+
+  "ae2_lunyi.configuration.title": "ae2 lunyi Configs",
+  "ae2_lunyi.configuration.section.ae2_lunyi.common.toml": "ae2 lunyi Configs",
+  "ae2_lunyi.configuration.section.ae2_lunyi.common.toml.title": "ae2 lunyi Configs",
+  "ae2_lunyi.configuration.items": "Item List",
+  "ae2_lunyi.configuration.logDirtBlock": "Log Dirt Block",
+  "ae2_lunyi.configuration.magicNumberIntroduction": "Magic Number Text",
+  "ae2_lunyi.configuration.magicNumber": "Magic Number"
+}

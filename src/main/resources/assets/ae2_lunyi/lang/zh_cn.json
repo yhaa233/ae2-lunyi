@@ -1,0 +1,17 @@
+{
+  "itemGroup.ae2_lunyi": "轮椅模组",
+
+  "entity.ae2_lunyi.wheelchair": "轮椅",
+  "item.ae2_lunyi.wheelchair_spawn_egg": "轮椅刷怪蛋",
+  "key.categories.ae2_lunyi": "轮椅",
+  "key.ae2_lunyi.dismount": "脱离轮椅",
+  "message.ae2_lunyi.no_terminal": "附近没有 ME 网络，把轮椅停到线缆旁边",
+  "message.ae2_lunyi.no_network": "未连接 ME 网络",
+  "message.ae2_lunyi.bound": "已绑定量子桥",
+  "message.ae2_lunyi.bridge_offline": "绑定的量子桥没连上（确认桥已成型，且轮椅里的奇点和桥里的是同一对）",
+  "message.ae2_lunyi.pattern_added": "样板已放入样板仓（共 %s 个）",
+  "block.ae2_lunyi.wheelchair_cpu": "轮椅合成核心",
+  "block.ae2_lunyi.pattern_store": "轮椅样板仓",
+  "message.ae2_lunyi.uploaded": "已上传 %s 个样板",
+  "gui.ae2_lunyi.pattern_store": "打开样板仓"
+}
