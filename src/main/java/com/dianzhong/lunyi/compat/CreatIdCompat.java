@@ -22,6 +22,7 @@ public final class CreatIdCompat {
     private static Method inputsMethod;
     private static Method slotsMethod;
     private static Method outputsMethod;
+    private static Method outputAmountsMethod;
 
     private CreatIdCompat() {
     }
@@ -42,6 +43,7 @@ public final class CreatIdCompat {
             inputsMethod = index.getMethod("inputsOf", String.class);
             slotsMethod = index.getMethod("slotsOf", String.class);
             outputsMethod = index.getMethod("outputsOf", String.class);
+            outputAmountsMethod = index.getMethod("outputAmountsOf", String.class);
             available = true;
             ae2lunyi.LOGGER.info("creat-id detected: recipe index will be used for pattern validation");
         } catch (Throwable t) {
@@ -63,6 +65,21 @@ public final class CreatIdCompat {
         }
     }
 
+    /** Output entries WITH counts; empty when unavailable. */
+    @SuppressWarnings("unchecked")
+    public static java.util.List<String> outputAmountsOf(String recipeId) {
+        if (!usable() || outputAmountsMethod == null) {
+            return Collections.emptyList();
+        }
+        try {
+            Object result = outputAmountsMethod.invoke(null, recipeId);
+            return result instanceof java.util.List<?> list
+                    ? (java.util.List<String>) list
+                    : Collections.emptyList();
+        } catch (Throwable t) {
+            return Collections.emptyList();
+        }
+    }
     /** Output ids of one recipe; empty when unavailable. */
     @SuppressWarnings("unchecked")
     public static java.util.List<String> outputsOf(String recipeId) {

@@ -1121,7 +1121,11 @@ public final class WheelchairCpu implements ICraftingCPU {
     private static long indexOutputAmount(String recipeId, AEKey wanted) {
         String id = String.valueOf(wanted.getId());
         long best = 0;
-        for (String entry : com.dianzhong.lunyi.compat.CreatIdCompat.outputsOf(recipeId)) {
+        var entries = com.dianzhong.lunyi.compat.CreatIdCompat.outputAmountsOf(recipeId);
+        if (entries.isEmpty()) {
+            entries = com.dianzhong.lunyi.compat.CreatIdCompat.outputsOf(recipeId);
+        }
+        for (String entry : entries) {
             int at = entry.lastIndexOf('x');
             String entryId = at > 0 ? entry.substring(0, at) : entry;
             if (!entryId.equals(id)) {
