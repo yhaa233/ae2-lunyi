@@ -79,6 +79,16 @@ public class Config {
             .comment("Intercept crafting even when no CPU is explicitly selected. Default: true")
             .define("autoInterceptCrafting", true);
 
+    /** Tell the player to add a non-wheelchair CPU when a job cannot be delegated. */
+    public static final ModConfigSpec.BooleanValue NOTIFY_NO_FALLBACK_CPU = BUILDER
+            .comment("Notify the player when a job needs another CPU but none is available.")
+            .define("notifyNoFallbackCpu", true);
+
+    /** Log every pattern validation decision with full input lists. */
+    public static final ModConfigSpec.BooleanValue LOG_VALIDATION = BUILDER
+            .comment("Log pattern validation decisions with input lists, for debugging.")
+            .define("logValidation", false);
+
     static final ModConfigSpec SPEC = BUILDER.build();
 
     /** 配方材料校验：允许物品 id、#标签、以及 air。 */

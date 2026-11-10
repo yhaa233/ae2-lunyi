@@ -66,6 +66,33 @@ public class CraftingSubmitMixin {
                 return;
             }
 
+            // unverifiable recipe: hand over to another CPU, or tell the player when none exists
+            if (Boolean.TRUE.equals(WheelchairCpu.UNVERIFIED.get())) {
+                boolean hasOtherCpu = this.grid.getCraftingService().getCpus().stream()
+                        .anyMatch(cpu -> !(cpu instanceof WheelchairCpu)
+                                && !com.dianzhong.lunyi.block.WheelchairCpuBlockEntity.isOurCluster(cpu));
+                if (!hasOtherCpu) {
+                    if (com.dianzhong.lunyi.Config.NOTIFY_NO_FALLBACK_CPU.get()) {
+                        var player = src.player().orElse(null);
+                        if (player != null) {
+                            player.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                                    "请尝试增加额外的非本模组的CPU"), false);
+                        }
+                    }
+                    ae2lunyi.LOGGER.info(
+                            "Wheelchair CPU: no fallback CPU available, telling the player");
+                    cir.setReturnValue(CraftingSubmitResult.CPU_TOO_SMALL);
+                    return;
+                }
+            }
+
+            // 样板不是真实配方：直接拒绝整单，不再交给 AE2（否则 AE2 会照样把伪造样板做出来）
+            if (Boolean.TRUE.equals(WheelchairCpu.REJECTED.get())) {
+                ae2lunyi.LOGGER.info("Wheelchair CPU blocked a job: pattern is not a real recipe");
+                cir.setReturnValue(CraftingSubmitResult.CPU_TOO_SMALL);
+                return;
+            }
+
             if (selectedUs) {
                 if (DELEGATING.get()) {
                     cir.setReturnValue(CraftingSubmitResult.CPU_TOO_SMALL);

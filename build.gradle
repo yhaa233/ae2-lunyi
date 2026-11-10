@@ -129,6 +129,9 @@ dependencies {
     // AE2 的编译期 API（不参与打包，也不会被强制要求存在）
     compileOnly 'appeng:appliedenergistics2:19.2.18@jar'
 
+    // Mekanism: compile-time only, guarded at runtime by ModList.isLoaded("mekanism")
+    compileOnly files('F:/mc/versions/NAST hard d1.2.1/mods/Mekanism-1.21.1-10.7.19.85.jar')
+
     // Example optional mod dependency with JEI
     // The JEI API is declared for compile time use, while the full JEI artifact is used at runtime
     // compileOnly "mezz.jei:jei-${mc_version}-common-api:${jei_version}"
@@ -200,25 +203,4 @@ idea {
         downloadSources = true
         downloadJavadoc = true
     }
-}
-
-// 放宽 NeoForge 依赖下限：MDG 会把生成的 neoforge.mods.toml 里的
-// versionRange 写死成编译时用的版本，这里在打包前统一改成 [21.1.0,)，
-// 这样较低版本的 NeoForge 21.1.x 整合包也能加载（API 差异需要自行确认）。
-tasks.register('widenNeoForgeRange') {
-    def toml = file("$buildDir/generated/sources/modMetadata/META-INF/neoforge.mods.toml")
-    doLast {
-        if (toml.exists()) {
-            def text = toml.getText('UTF-8')
-            def patched = text.replaceAll(/versionRange="\[21\.1\.\d+,\)"/, 'versionRange="[21.1.0,)"')
-            if (patched != text) {
-                toml.setText(patched, 'UTF-8')
-                println "widenNeoForgeRange: relaxed NeoForge dependency range"
-            }
-        }
-    }
-}
-
-tasks.named('processResources') {
-    dependsOn 'widenNeoForgeRange'
 }

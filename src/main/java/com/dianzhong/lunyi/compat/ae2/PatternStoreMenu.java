@@ -252,10 +252,29 @@ public class PatternStoreMenu extends AbstractContainerMenu {
 
         @Override
         public void setItem(int slot, ItemStack stack) {
+            if (slot < 0 || slot >= this.getContainerSize()) {
+                return;
+            }
             super.setItem(slot, stack);
             if (this.onChanged != null) {
                 this.onChanged.run();
             }
+        }
+
+        @Override
+        public ItemStack getItem(int slot) {
+            if (slot < 0 || slot >= this.getContainerSize()) {
+                return ItemStack.EMPTY;
+            }
+            return super.getItem(slot);
+        }
+
+        @Override
+        public ItemStack removeItem(int slot, int amount) {
+            if (slot < 0 || slot >= this.getContainerSize()) {
+                return ItemStack.EMPTY;
+            }
+            return super.removeItem(slot, amount);
         }
 
         @Override
