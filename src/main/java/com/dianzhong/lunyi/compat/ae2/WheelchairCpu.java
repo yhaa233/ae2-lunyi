@@ -342,11 +342,13 @@ public final class WheelchairCpu implements ICraftingCPU {
         if (outputs.isEmpty()) {
             return Check.FORGED;
         }
-        // useless_mod omniversal patterns come from the mold system: we cannot verify them, so outsource
+        // useless_mod omniversal patterns come from the mold system and cannot be verified here;
+        // accept them as-is and craft them ourselves instead of handing them to other CPUs
         String detailsClass = details.getClass().getName();
         if (detailsClass.contains("OmniversalPattern") || detailsClass.contains("sorrowmist.useless")) {
-            ae2lunyi.LOGGER.info("Wheelchair CPU: {} is an omniversal pattern, outsourcing", outputs.get(0).what());
-            return Check.UNKNOWN;
+            ae2lunyi.LOGGER.info("Wheelchair CPU: {} is an omniversal pattern, skipping validation",
+                    outputs.get(0).what());
+            return Check.OK;
         }
 
         AEKey wanted = outputs.get(0).what();
