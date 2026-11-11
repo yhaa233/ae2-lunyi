@@ -7,7 +7,9 @@
     "CraftingCpuLogicMixin",
     "CraftingServiceMixin",
     "CraftingSubmitMixin",
-    "TooltipsMixin"
+    "TooltipsMixin",
+    "InventorySaveMixin",
+    "FriendlyByteBufNbtMixin"
   ],
   "injectors": {
     "defaultRequire": 1

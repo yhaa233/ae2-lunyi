@@ -49,11 +49,16 @@ public final class WheelchairCpu implements ICraftingCPU {
     public enum Check {
         /** Pattern matches a real recipe. */
         OK,
-        /** Pattern contradicts a real recipe: must be blocked. */
+        /** The item has a real recipe, but this pattern no longer matches it (recipe changed). */
+        STALE,
+        /** No recipe anywhere produces this item: must be blocked. */
         FORGED,
         /** No recipe information available: let other CPUs handle it. */
         UNKNOWN
     }
+
+    /** True when the current perform() found an outdated pattern and wants the player to re-encode it. */
+    public static final ThreadLocal<Boolean> STALE = ThreadLocal.withInitial(() -> false);
 
     /** True when the current perform() could not verify a recipe and wants to hand over. */
     public static final ThreadLocal<Boolean> UNVERIFIED = ThreadLocal.withInitial(() -> false);
@@ -111,6 +116,7 @@ public final class WheelchairCpu implements ICraftingCPU {
         }
         REJECTED.set(false);
         UNVERIFIED.set(false);
+        STALE.set(false);
 
         MEStorage storage = grid.getStorageService().getInventory();
         IActionSource source = IActionSource.empty();
@@ -269,6 +275,12 @@ public final class WheelchairCpu implements ICraftingCPU {
             return true;
         }
         Check check = isRealRecipe(level, pattern);
+        if (check == Check.STALE) {
+            ae2lunyi.LOGGER.info(
+                    "Wheelchair CPU: pattern for {} no longer matches its recipe, asking for a re-encode", what);
+            STALE.set(true);
+            return false;
+        }
         if (check == Check.FORGED) {
             ae2lunyi.LOGGER.info("Wheelchair CPU: pattern for {} is not a real recipe, blocking", what);
             REJECTED.set(true);
@@ -380,14 +392,14 @@ public final class WheelchairCpu implements ICraftingCPU {
             }
             var holder = level.getRecipeManager().byKey(encoded.recipeId()).orElse(null);
             if (!(holder != null && holder.value() instanceof CraftingRecipe sourceRecipe)) {
-                return Check.FORGED;
+                return Check.STALE;
             }
             if (patternInputs == null) {
                 return Check.OK;
             }
             var ingredients = sourceRecipe.getIngredients().stream().filter(x -> !x.isEmpty()).toList();
             if (ingredients.size() != patternInputs.size()) {
-                return Check.FORGED;
+                return Check.STALE;
             }
             List<ItemStack> pool = new ArrayList<>(patternInputs);
             for (Ingredient ingredient : ingredients) {
@@ -399,7 +411,7 @@ public final class WheelchairCpu implements ICraftingCPU {
                     }
                 }
                 if (found < 0) {
-                    return Check.FORGED;
+                    return Check.STALE;
                 }
                 pool.remove(found);
             }
@@ -418,9 +430,15 @@ public final class WheelchairCpu implements ICraftingCPU {
 
             if (!itemOutput) {
                 var recipeIds = recipeInputIds(recipe);
-                boolean ok = !recipeIds.isEmpty()
-                        && (subsetMatch(patternIds, recipeIds)
-                        || subsetMatch(recipeIds, patternIds));
+                // the recipe must be fully covered by the pattern; tags are resolved by index slots
+                var producerSlots = com.dianzhong.lunyi.compat.CreatIdCompat
+                        .slotsOf(String.valueOf(holder.id()));
+                boolean ok;
+                if (!producerSlots.isEmpty()) {
+                    ok = slotMatch(producerSlots, patternInputSlots(details));
+                } else {
+                    ok = !recipeIds.isEmpty() && subsetMatch(recipeIds, patternIds);
+                }
                 if (verbose) {
                     ae2lunyi.LOGGER.info("non-item check {} recipe={} patternIn={} recipeIn={} -> {}",
                             wanted, holder.id(), patternIds, recipeIds, ok ? "PASS" : "no-match");
@@ -434,9 +452,15 @@ public final class WheelchairCpu implements ICraftingCPU {
 
             if (patternInputs == null) {
                 var recipeIds = recipeInputIds(recipe);
-                boolean ok = !recipeIds.isEmpty()
-                        && (subsetMatch(patternIds, recipeIds)
-                        || subsetMatch(recipeIds, patternIds));
+                // the recipe must be fully covered by the pattern; tags are resolved by index slots
+                var producerSlots = com.dianzhong.lunyi.compat.CreatIdCompat
+                        .slotsOf(String.valueOf(holder.id()));
+                boolean ok;
+                if (!producerSlots.isEmpty()) {
+                    ok = slotMatch(producerSlots, patternInputSlots(details));
+                } else {
+                    ok = !recipeIds.isEmpty() && subsetMatch(recipeIds, patternIds);
+                }
                 if (verbose) {
                     ae2lunyi.LOGGER.info("mixed check {} recipe={} patternIn={} recipeIn={} -> {}",
                             wanted, holder.id(), patternIds, recipeIds, ok ? "PASS" : "no-match");
@@ -478,8 +502,38 @@ public final class WheelchairCpu implements ICraftingCPU {
                 continue;
             }
 
+            // EnderIO soul binding: getIngredients() reports [input, barrier, input] because the
+            // soul slot is dynamic, so match against input()/output() instead of the generic path
+            if (recipe.getClass().getName().contains("SoulBindingRecipe")) {
+                Object rawInput = null;
+                try {
+                    var method = recipe.getClass().getMethod("input");
+                    if (method.getParameterCount() == 0) {
+                        rawInput = method.invoke(recipe);
+                    }
+                } catch (Throwable ignored) {
+                    // fall through to the generic path
+                }
+                if (rawInput instanceof Ingredient ingredient && patternInputs != null
+                        && patternInputs.stream().anyMatch(ingredient::test)
+                        && soulMatches(recipe, patternInputs, ingredient)
+                        && outputsCovered(recipeOutputIds(level, recipe), patternOutputIds)
+                        && !overclaims(recipeOutputAmount(level, recipe, wanted), outputs)) {
+                    if (verbose) {
+                        ae2lunyi.LOGGER.info("soul-binding check {} recipe={} -> PASS", wanted, holder.id());
+                    }
+                    return Check.OK;
+                }
+                if (verbose) {
+                    ae2lunyi.LOGGER.info("soul-binding check {} recipe={} -> no-match", wanted, holder.id());
+                }
+                continue;
+            }
+
             List<ItemStack> machineInputs = recipeInputs(recipe);
-            if ((machineInputs.isEmpty() || sameMultiset(patternInputs, machineInputs))
+            // unreadable inputs must NOT count as a match: fall through to the index, which has slots
+            if (!machineInputs.isEmpty()
+                    && sameMultiset(patternInputs, machineInputs)
                     && outputsCovered(recipeOutputIds(level, recipe), patternOutputIds)) {
                 return Check.OK;
             }
@@ -505,9 +559,12 @@ public final class WheelchairCpu implements ICraftingCPU {
                 }
                 // old index format without slot info
                 List<String> indexedInputs = com.dianzhong.lunyi.compat.CreatIdCompat.inputsOf(producerId);
-                if (!indexedInputs.isEmpty()
-                        && (subsetMatch(patternIds, indexedInputs)
-                        || subsetMatch(indexedInputs, patternIds))) {
+                if (verbose) {
+                    ae2lunyi.LOGGER.info("index diag {} producer={} slots={} inputs={}",
+                            wanted, producerId, recipeSlots, indexedInputs);
+                }
+                // 配方必须被样板完整覆盖（单向），否则少写材料也能通过
+                if (!indexedInputs.isEmpty() && subsetMatch(indexedInputs, patternIds)) {
                     if (verbose) {
                         ae2lunyi.LOGGER.info("index check {} matched recipe {}", wanted, producerId);
                     }
@@ -518,17 +575,24 @@ public final class WheelchairCpu implements ICraftingCPU {
 
         if (sawCandidate) {
             if (verbose) {
-                ae2lunyi.LOGGER.info("validate {} rejected: candidate exists but inputs differ", wanted);
+                ae2lunyi.LOGGER.info("validate {} is stale: a recipe exists but this pattern does not match it",
+                        wanted);
             }
-            return Check.FORGED;
+            return Check.STALE;
         }
         if (indexed != null) {
-            // index is complete enough: no recipe anywhere means the item cannot be crafted at all
-            if (verbose) {
-                ae2lunyi.LOGGER.info("validate {} {} (indexed={})",
-                        wanted, indexed ? "accepted: index has recipe" : "rejected: no recipe anywhere", indexed);
+            if (!indexed) {
+                // no recipe anywhere produces this item: forged
+                if (verbose) {
+                    ae2lunyi.LOGGER.info("validate {} rejected: no recipe anywhere", wanted);
+                }
+                return Check.FORGED;
             }
-            return indexed ? Check.OK : Check.UNKNOWN;
+            // a recipe exists, but its inputs could not be matched above: do not trust it blindly
+            if (verbose) {
+                ae2lunyi.LOGGER.info("validate {} unknown: index has a recipe but inputs did not match", wanted);
+            }
+            return Check.UNKNOWN;
         }
         if (verbose) {
             ae2lunyi.LOGGER.info("validate {} accepted: index unavailable", wanted);
@@ -679,8 +743,9 @@ public final class WheelchairCpu implements ICraftingCPU {
         List<ItemStack> out = new ArrayList<>();
         for (Method method : recipe.getClass().getMethods()) {
             String name = method.getName();
-            boolean looksLikeInput = name.equals("getIngredients")
-                    || name.matches("get[A-Za-z]*Input[A-Za-z]*");
+            boolean looksLikeInput = name.equals("getIngredients") || name.equals("getCatalyst")
+                    || name.equals("catalyst")
+                    || name.matches("(?i)[a-z]*input[a-z]*");
             if (!looksLikeInput || method.getParameterCount() != 0) {
                 continue;
             }
@@ -715,6 +780,18 @@ public final class WheelchairCpu implements ICraftingCPU {
                 collectStacks(item, out);
             }
             return;
+        }
+        // NeoForge SizedIngredient: 里面包着一个 Ingredient
+        for (String accessor : new String[]{"ingredient", "getIngredient"}) {
+            try {
+                Object inner = value.getClass().getMethod(accessor).invoke(value);
+                if (inner != null && inner != value) {
+                    collectStacks(inner, out);
+                    return;
+                }
+            } catch (Throwable ignored) {
+                // 换下一个方法名
+            }
         }
         try {
             Object reps = value.getClass().getMethod("getRepresentations").invoke(value);
@@ -753,8 +830,9 @@ public final class WheelchairCpu implements ICraftingCPU {
         List<String> out = new ArrayList<>();
         for (Method method : recipe.getClass().getMethods()) {
             String name = method.getName();
-            boolean looksLikeInput = name.equals("getIngredients")
-                    || name.matches("get[A-Za-z]*Input[A-Za-z]*");
+            boolean looksLikeInput = name.equals("getIngredients") || name.equals("getCatalyst")
+                    || name.equals("catalyst")
+                    || name.matches("(?i)[a-z]*input[a-z]*");
             if (!looksLikeInput || method.getParameterCount() != 0) {
                 continue;
             }
@@ -795,6 +873,18 @@ public final class WheelchairCpu implements ICraftingCPU {
                 collectIds(item, out);
             }
             return;
+        }
+        // NeoForge SizedIngredient
+        for (String accessor : new String[]{"ingredient", "getIngredient"}) {
+            try {
+                Object inner = value.getClass().getMethod(accessor).invoke(value);
+                if (inner != null && inner != value) {
+                    collectIds(inner, out);
+                    return;
+                }
+            } catch (Throwable ignored) {
+                // 换下一个方法名
+            }
         }
         try {
             Object reps = value.getClass().getMethod("getRepresentations").invoke(value);
@@ -854,23 +944,29 @@ public final class WheelchairCpu implements ICraftingCPU {
 
     /** Every recipe slot must be covered by a pattern slot with an intersecting id and enough amount. */
     private static boolean slotMatch(List<String> recipeSlots, List<String> patternSlots) {
+        // patterns often split N copies into N single-item inputs, while the index keeps one slot of N,
+        // so aggregate the pattern amounts per id before comparing
+        java.util.Map<String, Long> patternAmounts = new java.util.HashMap<>();
+        for (String patternSlot : patternSlots) {
+            String[] parts = splitSlot(patternSlot);
+            if (parts == null) {
+                continue;
+            }
+            long amount = parseAmount(parts[1]);
+            for (String id : parts[0].split("\\|")) {
+                patternAmounts.merge(id, amount, Long::sum);
+            }
+        }
+
         for (String recipeSlot : recipeSlots) {
             String[] recipeParts = splitSlot(recipeSlot);
             if (recipeParts == null) {
                 continue;
             }
+            long need = parseAmount(recipeParts[1]);
             boolean satisfied = false;
-            for (String patternSlot : patternSlots) {
-                String[] patternParts = splitSlot(patternSlot);
-                if (patternParts == null) {
-                    continue;
-                }
-                if (!intersects(recipeParts[0], patternParts[0])) {
-                    continue;
-                }
-                long need = parseAmount(recipeParts[1]);
-                long have = parseAmount(patternParts[1]);
-                if (have >= need) {
+            for (String id : recipeParts[0].split("\\|")) {
+                if (patternAmounts.getOrDefault(id, 0L) >= need) {
                     satisfied = true;
                     break;
                 }
@@ -1191,5 +1287,40 @@ public final class WheelchairCpu implements ICraftingCPU {
             pool.remove(found);
         }
         return true;
+    }
+
+    /**
+     * 灵魂绑定：配方通过 entityType() 声明需要哪种生物的灵魂，而灵魂瓶的实体会存进物品组件里。
+     * 这里要求样板里除了「被绑定物品」之外，至少还有一个输入的道具数据里带着该实体 id。
+     */
+    private static boolean soulMatches(Object recipe, List<ItemStack> patternInputs, Ingredient boundItem) {
+        Object entityType = null;
+        try {
+            var method = recipe.getClass().getMethod("entityType");
+            if (method.getParameterCount() == 0) {
+                entityType = method.invoke(recipe);
+            }
+        } catch (Throwable ignored) {
+            return true;   // 读不到实体要求就不额外限制
+        }
+        if (!(entityType instanceof java.util.Optional<?> optional) || optional.isEmpty()) {
+            return true;
+        }
+        String wanted = String.valueOf(optional.get());
+        // ResourceKey 的 toString 是 "ResourceKey[minecraft:entity_type / minecraft:zombie]"，
+        // 只保留最后那段 id
+        int slash = wanted.lastIndexOf('/');
+        if (slash >= 0) {
+            wanted = wanted.substring(slash + 1).replace("]", "").trim();
+        }
+        for (ItemStack stack : patternInputs) {
+            if (stack.isEmpty() || boundItem.test(stack)) {
+                continue;   // 跳过被绑定物品本身
+            }
+            if (String.valueOf(stack.getComponents()).contains(wanted)) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -72,29 +72,12 @@ public final class CoreCraftingProvider implements ICraftingProvider, IActionHos
     @Override
     public boolean pushPattern(IPatternDetails details, KeyCounter[] inputs) {
         IGridNode node = this.getActionableNode();
-        ae2lunyi.LOGGER.info("Wheelchair core pushPattern: node={}, grid={}, outputs={}",
-                node, node == null ? null : node.getGrid(), details.getOutputs().size());
+        // AE2 会反复调用这里；真正的产物由 WheelchairCpu.perform 统一交付，
+        // 这里绝不能再往网络插物品，否则每次调用都会白送一份（就是之前的复制漏洞）。
         if (node == null || node.getGrid() == null) {
-            ae2lunyi.LOGGER.warn("Wheelchair core pushPattern: node offline, cannot push");
             return false;
         }
-        try {
-            var storage = node.getGrid().getStorageService().getInventory();
-            IActionSource source = IActionSource.empty();
-            for (GenericStack out : details.getOutputs()) {
-                long inserted = storage.insert(out.what(), out.amount(), Actionable.MODULATE, source);
-                ae2lunyi.LOGGER.info("Wheelchair core pushPattern: inserted {} of {} {}",
-                        inserted, out.amount(), out.what());
-                if (inserted < out.amount()) {
-                    ae2lunyi.LOGGER.warn("Wheelchair core pushPattern: network refused the output");
-                    return false;
-                }
-            }
-            return true;
-        } catch (Throwable t) {
-            ae2lunyi.LOGGER.error("Wheelchair core pushPattern failed", t);
-            return false;
-        }
+        return true;
     }
 
     @Override

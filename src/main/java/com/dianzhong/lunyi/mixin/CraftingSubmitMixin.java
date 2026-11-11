@@ -43,11 +43,15 @@ public class CraftingSubmitMixin {
                                    CallbackInfoReturnable<ICraftingSubmitResult> cir) {
         boolean selectedUs = target instanceof WheelchairCpu
                 || com.dianzhong.lunyi.block.WheelchairCpuBlockEntity.isOurCluster(target);
-        // 没指定 CPU 时也可以接管，但必须同时满足：
-        //  - 这张网络上真的有轮椅合成核心或轮椅；
-        //  - 我们的 perform() 能把它做出来（做不出来就原样放行给 AE2）。
+
+        // the player explicitly picked another CPU: never intercept, otherwise we would
+        // bypass that CPU's own material/plan checks and duplicate the craft
+        if (target != null && !selectedUs) {
+            return;
+        }
+
+        // no CPU selected: we may still take over, but only when a wheelchair or core exists here
         if (!selectedUs) {
-            // 配置关闭时只有指定 CPU 才拦截
             if (!com.dianzhong.lunyi.Config.AUTO_INTERCEPT_CRAFTING.get()) {
                 return;
             }
@@ -63,6 +67,18 @@ public class CraftingSubmitMixin {
         try {
             if (WheelchairCpu.perform(this.grid, plan.finalOutput())) {
                 cir.setReturnValue(CraftingSubmitResult.successful(null));
+                return;
+            }
+
+            // outdated pattern: the recipe changed, so ask the player to re-encode it
+            if (Boolean.TRUE.equals(WheelchairCpu.STALE.get())) {
+                var stalePlayer = src.player().orElse(null);
+                if (stalePlayer != null) {
+                    stalePlayer.displayClientMessage(net.minecraft.network.chat.Component.literal(
+                            "该样板绑定的配方已变化，请重新编码这张样板后再下单"), false);
+                }
+                ae2lunyi.LOGGER.info("Wheelchair CPU blocked a job: pattern is stale");
+                cir.setReturnValue(CraftingSubmitResult.CPU_TOO_SMALL);
                 return;
             }
 

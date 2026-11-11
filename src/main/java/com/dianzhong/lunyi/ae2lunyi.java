@@ -71,6 +71,13 @@ public class ae2lunyi {
     // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
     public ae2lunyi(IEventBus modEventBus, ModContainer modContainer) {
         // Register the commonSetup method for modloading
+        // 玩家加入时修复历史上缺少 id 的生成蛋，避免一保存就崩
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {
+                    if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
+                        com.dianzhong.lunyi.compat.EggRepair.repair(player);
+                    }
+                });
         modEventBus.addListener(this::commonSetup);
 
         // Register the Deferred Register to the mod event bus so blocks get registered
