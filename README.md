@@ -1,4 +1,5 @@
-
+本模组还有一个前置：creat-id 不要忘了下载
+附属creat-id：https://github.com/yhaa233/creat-id
 Installation information
 =======
 
