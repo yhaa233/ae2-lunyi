@@ -77,6 +77,11 @@ public class WheelchairEntity extends Mob {
     /** Last known rider position while seated. */
     private net.minecraft.world.phys.Vec3 riderLastPos;
     /** Whether we currently hold a forced chunk ticket. */
+    /** Dedicated ticket type so vanilla never clears it when player tickets are refreshed. */
+    private static final net.minecraft.server.level.TicketType<net.minecraft.world.level.ChunkPos> WHEELCHAIR_TICKET =
+            net.minecraft.server.level.TicketType.create("ae2_lunyi_wheelchair",
+                    java.util.Comparator.comparingLong(net.minecraft.world.level.ChunkPos::toLong), 0);
+
     private boolean chunkForced;
     private int forcedChunkX;
     private int forcedChunkZ;
@@ -569,12 +574,12 @@ public class WheelchairEntity extends Mob {
     /** Transient ticket, radius 1 keeps the 3x3 around us loaded; never written to chunks.dat. */
     private void addTicket(net.minecraft.server.level.ServerLevel level, int chunkX, int chunkZ) {
         var pos = new net.minecraft.world.level.ChunkPos(chunkX, chunkZ);
-        level.getChunkSource().addRegionTicket(net.minecraft.server.level.TicketType.PLAYER, pos, 1, pos);
+        level.getChunkSource().addRegionTicket(WHEELCHAIR_TICKET, pos, 1, pos);
     }
 
     private void releaseTicket(net.minecraft.server.level.ServerLevel level, int chunkX, int chunkZ) {
         var pos = new net.minecraft.world.level.ChunkPos(chunkX, chunkZ);
-        level.getChunkSource().removeRegionTicket(net.minecraft.server.level.TicketType.PLAYER, pos, 1, pos);
+        level.getChunkSource().removeRegionTicket(WHEELCHAIR_TICKET, pos, 1, pos);
     }
 
     private void releaseChunkTicket() {
@@ -661,8 +666,11 @@ public class WheelchairEntity extends Mob {
         }
     }
     /**
-     * Only follow the rider when they jumped a long distance right after dismounting
-     * (which is what a teleport looks like). Walking away never triggers it.
+     * Follow the rider after a teleport, but never yank them back.
+     * <ul>
+     *   <li>Still seated but far from us: the server moved the rider, so move with them.</li>
+     *   <li>Not seated: only react when they jumped a long way within the 1 second window.</li>
+     * </ul>
      */
     private void tickFollowLostRider() {
         if (this.followRiderId == null) {
@@ -678,14 +686,30 @@ public class WheelchairEntity extends Mob {
             return;
         }
         Player rider = serverLevel.getServer().getPlayerList().getPlayer(this.followRiderId);
-        if (rider == null || rider.getVehicle() != null) {
+        if (rider == null) {
             this.followRiderId = null;
             this.followOrigin = null;
             return;
         }
-        // a real teleport jumps far in a single tick; walking cannot
+        // still sitting on us: follow if the server moved them away
+        if (rider.getVehicle() == this) {
+            if (rider.level() == this.level()
+                    && rider.position().distanceToSqr(this.position()) > 16.0D) {
+                this.setPos(rider.getX(), rider.getY(), rider.getZ());
+                this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+                this.setYRot(rider.getYRot());
+            }
+            return;
+        }
+        if (rider.getVehicle() != null) {
+            // riding something else: forget it
+            this.followRiderId = null;
+            this.followOrigin = null;
+            return;
+        }
+        // not seated: require a teleport-sized jump, far beyond any walking speed
         double moved = this.followOrigin == null ? 0.0D : this.followOrigin.distanceToSqr(rider.position());
-        if (moved < 1024.0D) {
+        if (moved < 4096.0D) {
             return;
         }
         this.followRiderId = null;
