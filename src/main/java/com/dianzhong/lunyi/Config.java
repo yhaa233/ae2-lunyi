@@ -14,36 +14,46 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.fml.event.config.ModConfigEvent;
 import net.neoforged.neoforge.common.ModConfigSpec;
 
-// An example config class. This is not required, but it's a good idea to have one to keep your config organized.
-// Demonstrates how to use Neo's config APIs
+/**
+ * 模组配置。
+ * <p>
+ * 这里的中文注释会写进 {@code config/ae2_lunyi-common.toml}，方便直接读配置文件。
+ */
 public class Config {
     private static final ModConfigSpec.Builder BUILDER = new ModConfigSpec.Builder();
 
+    // ------------------------------------------------------------------
+    // 模板自带的示例项（保留以免影响启动日志，可忽略）
+    // ------------------------------------------------------------------
+
     public static final ModConfigSpec.BooleanValue LOG_DIRT_BLOCK = BUILDER
-            .comment("Whether to log the dirt block on common setup")
+            .comment("是否在通用初始化阶段打印泥土方块")
             .define("logDirtBlock", true);
 
     public static final ModConfigSpec.IntValue MAGIC_NUMBER = BUILDER
-            .comment("A magic number")
+            .comment("一个魔法数字（示例项，可忽略）")
             .defineInRange("magicNumber", 42, 0, Integer.MAX_VALUE);
 
     public static final ModConfigSpec.ConfigValue<String> MAGIC_NUMBER_INTRODUCTION = BUILDER
-            .comment("What you want the introduction message to be for the magic number")
+            .comment("魔法数字的介绍语前缀（示例项，可忽略）")
             .define("magicNumberIntroduction", "The magic number is... ");
 
-    // a list of strings that are treated as resource locations for items
     public static final ModConfigSpec.ConfigValue<List<? extends String>> ITEM_STRINGS = BUILDER
-            .comment("A list of items to log on common setup.")
+            .comment("通用初始化阶段要打印的物品列表（示例项，可忽略）")
             .defineListAllowEmpty("items", List.of("minecraft:iron_ingot"), () -> "", Config::validateItemName);
 
-    /** 是否把「轮椅合成核心」作为合成 CPU 暴露给 AE2。默认关闭。 */
+    // ------------------------------------------------------------------
+    // 轮椅相关
+    // ------------------------------------------------------------------
+
+    /** 是否把「轮椅合成核心」作为合成 CPU 暴露给 AE2。 */
     public static final ModConfigSpec.BooleanValue WHEELCHAIR_CPU_ENABLED = BUILDER
-            .comment("Expose the wheelchair crafting core as an AE2 crafting CPU (only when a core or wheelchair is on the grid). Default: true")
+            .comment("是否把「轮椅合成核心」作为 AE2 的合成 CPU 暴露出来（仅当网络里有核心或轮椅时生效）。默认：true")
             .define("wheelchairCpuEnabled", true);
 
     /** 轮椅（生成蛋）的 3x3 配方，按行排列，共 9 项；air 表示空。 */
     public static final ModConfigSpec.ConfigValue<List<? extends String>> WHEELCHAIR_RECIPE = BUILDER
-            .comment("3x3 ingredients for the wheelchair spawn egg, row by row (use 'air' for empty, '#tag' for item tags)")
+            .comment("轮椅生成蛋的 3x3 配方，按从左到右、从上到下排列共 9 项；'air' 表示空位，'#标签' 表示物品标签")
             .defineListAllowEmpty("wheelchairRecipe",
                     List.of("minecraft:stick", "minecraft:stick", "minecraft:stick",
                             "minecraft:stick", "#minecraft:logs", "minecraft:stick",
@@ -52,23 +62,28 @@ public class Config {
 
     /** 轮椅合成核心的 3x3 配方，按行排列，共 9 项；air 表示空。 */
     public static final ModConfigSpec.ConfigValue<List<? extends String>> CORE_RECIPE = BUILDER
-            .comment("3x3 ingredients for the wheelchair crafting core, row by row (use 'air' for empty, '#tag' for item tags)")
+            .comment("轮椅合成核心的 3x3 配方，按从左到右、从上到下排列共 9 项；'air' 表示空位，'#标签' 表示物品标签")
             .defineListAllowEmpty("coreRecipe",
                     List.of("minecraft:stick", "minecraft:stick", "minecraft:stick",
                             "minecraft:stick", "ae2_lunyi:wheelchair_spawn_egg", "minecraft:stick",
                             "minecraft:stick", "minecraft:stick", "minecraft:stick"),
                     () -> "minecraft:air", Config::validateIngredient);
+
+    // ------------------------------------------------------------------
+    // 样板与合成校验
+    // ------------------------------------------------------------------
+
     /** 样板仓是否接受所有编码样板。false 时只接受合成样板（crafting pattern）。 */
     public static final ModConfigSpec.BooleanValue PATTERN_STORE_ALL_PATTERNS = BUILDER
-            .comment("Accept every encoded pattern. When false, only crafting patterns are allowed.")
+            .comment("样板仓是否接受所有编码样板；设为 false 时只接受合成样板（crafting pattern），处理样板会被拒收")
             .define("patternStoreAllPatterns", true);
 
     /**
-     * 严格校验。false 时：轮椅/核心的样板仓只收合成样板，且合成树中每个样板都必须能在
-     * 服务端的配方表里找到对应配方，否则视为不可用（防止虚空请求）。
+     * 严格校验。true（默认）：处理样板必须能在配方表里找到对应配方，
+     * 且输入、产物、数量都要对得上；伪造样板会被整单拒绝。
      */
     public static final ModConfigSpec.BooleanValue STRICT_PATTERN_VALIDATION = BUILDER
-            .comment("Validate patterns against the recipe manager. When false, only real crafting recipes are used.")
+            .comment("是否启用严格样板校验。true 时会核对配方的输入/产物/数量，伪造样板会被拒绝；false 时完全不校验")
             .define("strictPatternValidation", true);
 
     /**
@@ -76,22 +91,26 @@ public class Config {
      * false：只有玩家在 CPU 列表里明确选中轮椅核心时才会拦截。
      */
     public static final ModConfigSpec.BooleanValue AUTO_INTERCEPT_CRAFTING = BUILDER
-            .comment("Intercept crafting even when no CPU is explicitly selected. Default: true")
+            .comment("是否自动拦截合成任务。true：网络里有轮椅或核心就直接接管；false：只在玩家于 CPU 列表中选中轮椅核心时才拦截")
             .define("autoInterceptCrafting", true);
 
-    /** Rider is immune to harmful potion effects while seated. */
+    // ------------------------------------------------------------------
+    // 骑乘与提示
+    // ------------------------------------------------------------------
+
+    /** 骑乘时是否免疫所有负面效果。 */
     public static final ModConfigSpec.BooleanValue RIDER_IMMUNE_HARMFUL = BUILDER
-            .comment("While riding, remove all harmful potion effects from the rider.")
+            .comment("骑上轮椅时是否免疫所有负面药水效果（中毒、凋零、缓慢等），每 tick 自动清除")
             .define("riderImmuneToHarmfulEffects", true);
 
-    /** Tell the player to add a non-wheelchair CPU when a job cannot be delegated. */
+    /** 没有其它 CPU 可分配时是否提示玩家。 */
     public static final ModConfigSpec.BooleanValue NOTIFY_NO_FALLBACK_CPU = BUILDER
-            .comment("Notify the player when a job needs another CPU but none is available.")
+            .comment("当任务需要交给其它 CPU、但网络里没有其它 CPU 时，是否提示玩家「请尝试增加额外的非本模组的CPU」")
             .define("notifyNoFallbackCpu", true);
 
-    /** Log every pattern validation decision with full input lists. */
+    /** 是否把每次样板校验的明细写进日志（排查误判用）。 */
     public static final ModConfigSpec.BooleanValue LOG_VALIDATION = BUILDER
-            .comment("Log pattern validation decisions with input lists, for debugging.")
+            .comment("是否在日志中输出每次样板校验的详细内容（输入清单、匹配到的配方、拒绝原因），用于排查问题")
             .define("logValidation", false);
 
     static final ModConfigSpec SPEC = BUILDER.build();
@@ -108,6 +127,7 @@ public class Config {
         var id = ResourceLocation.tryParse(name);
         return id != null && (BuiltInRegistries.ITEM.containsKey(id) || "minecraft:air".equals(name));
     }
+
     private static boolean validateItemName(final Object obj) {
         return obj instanceof String itemName && BuiltInRegistries.ITEM.containsKey(ResourceLocation.parse(itemName));
     }
