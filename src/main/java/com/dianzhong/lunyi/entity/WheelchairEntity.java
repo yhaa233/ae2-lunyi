@@ -546,7 +546,7 @@ public class WheelchairEntity extends Mob {
         }
     }
 
-    /** Force-load the chunk we are in so this entity keeps ticking when the rider leaves. */
+    /** Keep the chunk around us loaded (transient ticket) so we keep ticking after the rider leaves. */
     private void maintainChunkTicket(boolean keepLoaded) {
         if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
             return;
@@ -555,20 +555,31 @@ public class WheelchairEntity extends Mob {
         int chunkZ = this.chunkPosition().z;
 
         if (this.chunkForced && (!keepLoaded || this.forcedChunkX != chunkX || this.forcedChunkZ != chunkZ)) {
-            serverLevel.setChunkForced(this.forcedChunkX, this.forcedChunkZ, false);
+            this.releaseTicket(serverLevel, this.forcedChunkX, this.forcedChunkZ);
             this.chunkForced = false;
         }
         if (keepLoaded && !this.chunkForced) {
-            serverLevel.setChunkForced(chunkX, chunkZ, true);
+            this.addTicket(serverLevel, chunkX, chunkZ);
             this.chunkForced = true;
             this.forcedChunkX = chunkX;
             this.forcedChunkZ = chunkZ;
         }
     }
 
+    /** Transient ticket, radius 1 keeps the 3x3 around us loaded; never written to chunks.dat. */
+    private void addTicket(net.minecraft.server.level.ServerLevel level, int chunkX, int chunkZ) {
+        var pos = new net.minecraft.world.level.ChunkPos(chunkX, chunkZ);
+        level.getChunkSource().addRegionTicket(net.minecraft.server.level.TicketType.PLAYER, pos, 1, pos);
+    }
+
+    private void releaseTicket(net.minecraft.server.level.ServerLevel level, int chunkX, int chunkZ) {
+        var pos = new net.minecraft.world.level.ChunkPos(chunkX, chunkZ);
+        level.getChunkSource().removeRegionTicket(net.minecraft.server.level.TicketType.PLAYER, pos, 1, pos);
+    }
+
     private void releaseChunkTicket() {
         if (this.chunkForced && this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
-            serverLevel.setChunkForced(this.forcedChunkX, this.forcedChunkZ, false);
+            this.releaseTicket(serverLevel, this.forcedChunkX, this.forcedChunkZ);
             this.chunkForced = false;
         }
     }
