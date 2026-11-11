@@ -133,4 +133,23 @@ public final class ClientSetup {
             }
         }
     }
+
+    /** Alt + 右键轮椅合成核心：把背包里的样板全部上传（Alt 只能在客户端读到）。 */
+    @SubscribeEvent
+    static void onRightClickCore(net.neoforged.neoforge.event.entity.player.PlayerInteractEvent.RightClickBlock event) {
+        if (!event.getLevel().isClientSide()) {
+            return;
+        }
+        if (!net.minecraft.client.gui.screens.Screen.hasAltDown()) {
+            return;
+        }
+        var state = event.getLevel().getBlockState(event.getPos());
+        if (!(state.getBlock() instanceof com.dianzhong.lunyi.block.WheelchairCpuBlock)) {
+            return;
+        }
+        PacketDistributor.sendToServer(
+                new com.dianzhong.lunyi.network.UploadPatternsPayload(event.getPos()));
+        event.setCanceled(true);
+        event.setCancellationResult(net.minecraft.world.InteractionResult.SUCCESS);
+    }
 }

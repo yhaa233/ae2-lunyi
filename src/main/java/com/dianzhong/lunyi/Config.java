@@ -79,6 +79,11 @@ public class Config {
             .comment("Intercept crafting even when no CPU is explicitly selected. Default: true")
             .define("autoInterceptCrafting", true);
 
+    /** Rider is immune to harmful potion effects while seated. */
+    public static final ModConfigSpec.BooleanValue RIDER_IMMUNE_HARMFUL = BUILDER
+            .comment("While riding, remove all harmful potion effects from the rider.")
+            .define("riderImmuneToHarmfulEffects", true);
+
     /** Tell the player to add a non-wheelchair CPU when a job cannot be delegated. */
     public static final ModConfigSpec.BooleanValue NOTIFY_NO_FALLBACK_CPU = BUILDER
             .comment("Notify the player when a job needs another CPU but none is available.")

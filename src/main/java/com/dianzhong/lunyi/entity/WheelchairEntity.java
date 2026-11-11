@@ -424,6 +424,11 @@ public class WheelchairEntity extends Mob {
         CompoundTag everything = new CompoundTag();
         this.saveWithoutId(everything);
         CompoundTag kept = new CompoundTag();
+        // ENTITY_DATA must contain the entity type id, otherwise vanilla throws "Missing id for entity"
+        var typeKey = net.minecraft.core.registries.BuiltInRegistries.ENTITY_TYPE.getKey(this.getType());
+        if (typeKey != null) {
+            kept.putString("id", typeKey.toString());
+        }
         for (String key : new String[]{"AeKey", "AePatterns", "AeSortBy", "AeSortDir"}) {
             if (everything.contains(key)) {
                 kept.put(key, everything.get(key));
@@ -530,6 +535,9 @@ public class WheelchairEntity extends Mob {
         Ae2Compat.tickGridNode(this);
 
         if (this.getFirstPassenger() instanceof Player rider) {
+            if (com.dianzhong.lunyi.Config.RIDER_IMMUNE_HARMFUL.get()) {
+                this.clearHarmfulEffects(rider);
+            }
             this.handleFlightToggle(rider);
             if (this.tickCount % EFFECT_REFRESH_INTERVAL == 0) {
                 this.applyRiderBuffs(rider);
@@ -580,6 +588,23 @@ public class WheelchairEntity extends Mob {
         this.lastJumping = jumping;
     }
 
+    /** 骑乘时免疫所有负面效果：每 tick 把有害状态移除。 */
+    private void clearHarmfulEffects(Player rider) {
+        java.util.List<net.minecraft.core.Holder<net.minecraft.world.effect.MobEffect>> harmful = null;
+        for (MobEffectInstance instance : rider.getActiveEffects()) {
+            if (instance.getEffect().value().getCategory() == net.minecraft.world.effect.MobEffectCategory.HARMFUL) {
+                if (harmful == null) {
+                    harmful = new java.util.ArrayList<>(2);
+                }
+                harmful.add(instance.getEffect());
+            }
+        }
+        if (harmful != null) {
+            for (var holder : harmful) {
+                rider.removeEffect(holder);
+            }
+        }
+    }
     private void applyRiderBuffs(Player rider) {
         rider.addEffect(new MobEffectInstance(MobEffects.DAMAGE_RESISTANCE, EFFECT_DURATION_TICKS, EFFECT_AMPLIFIER,
                 false, false, true));

@@ -67,6 +67,42 @@ public class WheelchairCpuBlock extends AbstractCraftingUnitBlock<WheelchairCpuB
         return super.playerWillDestroy(level, pos, state, player);
     }
 
+    /**
+     * 把玩家背包里所有合格的编码样板搬进核心样板仓，并在动作栏提示数量。
+     * Shift+右键（服务端判定）与 Alt+右键（客户端发包）都会走这里。
+     *
+     * @return 实际搬运的数量
+     */
+    public static int uploadAllPatterns(Player player, WheelchairCpuBlockEntity core) {
+        int moved = 0;
+        var inv = player.getInventory();
+        for (int i = 0; i < inv.getContainerSize(); i++) {
+            ItemStack stack = inv.getItem(i);
+            if (stack.isEmpty() || !com.dianzhong.lunyi.compat.ae2.Ae2Compat.isEncodedPattern(stack)) {
+                continue;
+            }
+            if ((!com.dianzhong.lunyi.Config.PATTERN_STORE_ALL_PATTERNS.get()
+                    || !com.dianzhong.lunyi.Config.STRICT_PATTERN_VALIDATION.get())
+                    && !com.dianzhong.lunyi.compat.ae2.Ae2Compat.isCraftingPattern(stack)) {
+                continue;
+            }
+            int count = stack.getCount();
+            for (int k = 0; k < count; k++) {
+                core.getPatterns().add(stack.copyWithCount(1));
+                moved++;
+            }
+            if (!player.getAbilities().instabuild) {
+                inv.setItem(i, ItemStack.EMPTY);
+            }
+        }
+        if (moved > 0) {
+            core.patternsChanged();
+        }
+        player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                "message.ae2_lunyi.uploaded", moved), true);
+        return moved;
+    }
+
     @Override
     public WheelchairCpuBlockEntity newBlockEntity(BlockPos pos, BlockState state) {
         return new WheelchairCpuBlockEntity(com.dianzhong.lunyi.registry.ModBlocks.WHEELCHAIR_CPU_BE.get(), pos, state);

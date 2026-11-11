@@ -33,6 +33,14 @@ public final class ModNetwork {
                                 Ae2Compat.tryOpenTerminal(player, wheelchair);
                             }
                         })
+                .playToServer(UploadPatternsPayload.TYPE, UploadPatternsPayload.STREAM_CODEC,
+                        (payload, context) -> {
+                            Player player = context.player();
+                            if (player.level().getBlockEntity(payload.pos())
+                                    instanceof com.dianzhong.lunyi.block.WheelchairCpuBlockEntity core) {
+                                com.dianzhong.lunyi.block.WheelchairCpuBlock.uploadAllPatterns(player, core);
+                            }
+                        })
                 .playToServer(OpenPatternStorePayload.TYPE, OpenPatternStorePayload.STREAM_CODEC,
                         (payload, context) -> {
                             Player player = context.player();
