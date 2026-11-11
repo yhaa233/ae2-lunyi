@@ -71,6 +71,33 @@ public class ae2lunyi {
     // FML will recognize some parameter types like IEventBus or ModContainer and pass them in automatically.
     public ae2lunyi(IEventBus modEventBus, ModContainer modContainer) {
         // Register the commonSetup method for modloading
+        // /ae2lunyi scan：扫描损坏物品
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.RegisterCommandsEvent event) ->
+                        event.getDispatcher().register(
+                                net.minecraft.commands.Commands.literal("ae2lunyi")
+                                        .then(net.minecraft.commands.Commands.literal("scan")
+                                                .requires(source -> source.hasPermission(2))
+                                                .executes(context -> {
+                                                    if (context.getSource().getEntity()
+                                                            instanceof net.minecraft.server.level.ServerPlayer player) {
+                                                        return com.dianzhong.lunyi.compat.BadItemScanner.scan(player);
+                                                    }
+                                                    return 0;
+                                                }))));
+
+        // 服务器每 tick 把"已结束的合成"产物写入网络（见 PendingDeliveries）
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.tick.ServerTickEvent.Post event) -> {
+                    com.dianzhong.lunyi.compat.ae2.PendingDeliveries.flush(
+                            event.getServer().getTickCount(),
+                            message -> LOGGER.warn("Wheelchair core: {}", message));
+                });
+        // 服务器关闭时清空待交付队列
+        net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
+                (net.neoforged.neoforge.event.server.ServerStoppedEvent event) ->
+                        com.dianzhong.lunyi.compat.ae2.PendingDeliveries.clear());
+
         // 玩家加入时修复历史上缺少 id 的生成蛋，避免一保存就崩
         net.neoforged.neoforge.common.NeoForge.EVENT_BUS.addListener(
                 (net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {

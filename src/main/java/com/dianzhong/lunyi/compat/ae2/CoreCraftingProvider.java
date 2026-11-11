@@ -41,7 +41,7 @@ public final class CoreCraftingProvider implements ICraftingProvider, IActionHos
 
         var coreLevel = this.core.getLevel();
         if (coreLevel != null) {
-            decodeInto(decoded, this.core.getPatterns(), coreLevel);
+            decodeInto(decoded, this.core.getPatterns(), coreLevel, false);
         }
 
         // 跨维度：直接遍历所有已加载的轮椅，用它们各自所属的 Level 解码
@@ -50,34 +50,55 @@ public final class CoreCraftingProvider implements ICraftingProvider, IActionHos
             if (level == null) {
                 continue;
             }
-            decodeInto(decoded, wheelchair.getPatterns(), level);
+            decodeInto(decoded, wheelchair.getPatterns(), level, false);
         }
 
         ae2lunyi.LOGGER.info("Wheelchair core provider: {} patterns available", decoded.size());
         return decoded;
     }
 
-    private static void decodeInto(List<IPatternDetails> out, List<ItemStack> stacks, net.minecraft.world.level.Level level) {
+    private static void decodeInto(List<IPatternDetails> out, List<ItemStack> stacks,
+                                   net.minecraft.world.level.Level level, boolean validate) {
         for (ItemStack stack : stacks) {
             if (stack.isEmpty()) {
                 continue;
             }
             IPatternDetails details = PatternDetailsHelper.decodePattern(stack, level);
-            if (details != null) {
-                out.add(details);
+            if (details == null) {
+                continue;
             }
+            // 校验不通过的样板不对外公开：对方的合成计划根本不会生成
+            if (validate && !WheelchairCpu.isAdvertisable(level, details)) {
+                continue;
+            }
+            out.add(details);
         }
     }
 
     @Override
     public boolean pushPattern(IPatternDetails details, KeyCounter[] inputs) {
         IGridNode node = this.getActionableNode();
-        // AE2 会反复调用这里；真正的产物由 WheelchairCpu.perform 统一交付，
-        // 这里绝不能再往网络插物品，否则每次调用都会白送一份（就是之前的复制漏洞）。
         if (node == null || node.getGrid() == null) {
             return false;
         }
-        return true;
+        // 先校验：配方不对（虚空请求、样板过期）就什么都不给，只让这个请求失败，
+        // 不会取消发起方的整个任务
+        if (!WheelchairCpu.validateForProvider(node.getGrid(), details)) {
+            ae2lunyi.LOGGER.info("Wheelchair core: refused an invalid pattern push from another CPU");
+            return false;
+        }
+        try {
+            // 全部延后约 1 秒交付：任务没结束前不让产物出现在终端里
+            var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+            long tick = server == null ? 0L : server.getTickCount();
+            for (GenericStack out : details.getOutputs()) {
+                PendingDeliveries.add(node.getGrid(), out.what(), out.amount(), tick);
+            }
+            return true;
+        } catch (Throwable t) {
+            ae2lunyi.LOGGER.error("Wheelchair core: pushPattern failed", t);
+            return false;
+        }
     }
 
     @Override

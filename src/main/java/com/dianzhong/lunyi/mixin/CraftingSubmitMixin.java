@@ -44,12 +44,10 @@ public class CraftingSubmitMixin {
         boolean selectedUs = target instanceof WheelchairCpu
                 || com.dianzhong.lunyi.block.WheelchairCpuBlockEntity.isOurCluster(target);
 
-        // the player explicitly picked another CPU: never intercept, otherwise we would
-        // bypass that CPU's own material/plan checks and duplicate the craft
+        // 其它 CPU 的请求交给 pushPattern 处理：校验通过才交付，不通过就什么都不给
         if (target != null && !selectedUs) {
             return;
         }
-
         // no CPU selected: we may still take over, but only when a wheelchair or core exists here
         if (!selectedUs) {
             if (!com.dianzhong.lunyi.Config.AUTO_INTERCEPT_CRAFTING.get()) {

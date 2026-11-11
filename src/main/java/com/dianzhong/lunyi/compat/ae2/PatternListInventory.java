@@ -19,8 +19,17 @@ import java.util.function.Predicate;
 public final class PatternListInventory implements InternalInventory {
     private final List<ItemStack> patterns;
 
-    public PatternListInventory(List<ItemStack> patterns) {
+    private final Runnable onChange;
+
+    public PatternListInventory(List<ItemStack> patterns, Runnable onChange) {
         this.patterns = patterns;
+        this.onChange = onChange;
+    }
+
+    private void changed() {
+        if (this.onChange != null) {
+            this.onChange.run();
+        }
     }
 
     @Override
@@ -46,6 +55,7 @@ public final class PatternListInventory implements InternalInventory {
             this.patterns.add(ItemStack.EMPTY);
         }
         this.patterns.set(slot, stack);
+        this.changed();
     }
 
     @Override
@@ -77,6 +87,7 @@ public final class PatternListInventory implements InternalInventory {
         }
         if (!simulate) {
             this.patterns.add(stack.copy());
+            this.changed();
         }
         return ItemStack.EMPTY;
     }

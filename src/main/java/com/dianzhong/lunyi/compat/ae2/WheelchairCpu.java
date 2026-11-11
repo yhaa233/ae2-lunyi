@@ -45,6 +45,92 @@ public final class WheelchairCpu implements ICraftingCPU {
 
     public static boolean LIST_LOGGED;
 
+    /**
+     * 这张样板是否在我们的样板仓里（轮椅合成核心或轮椅本体）。
+     * <p>
+     * 用于识别"来自其它 CPU（例如多方块假配方）的请求"：只有样板确实由我们保管时，
+     * 才按玩家下单同样的流程校验并制作。
+     */
+    public static boolean hasStoredPattern(IGrid grid, @Nullable GenericStack output) {
+        if (output == null) {
+            return false;
+        }
+        Level level = null;
+        List<ItemStack> stacks = new ArrayList<>();
+        for (WheelchairCpuBlockEntity core : grid.getMachines(WheelchairCpuBlockEntity.class)) {
+            if (level == null) {
+                level = core.getLevel();
+            }
+            stacks.addAll(core.getPatterns());
+        }
+        for (com.dianzhong.lunyi.entity.WheelchairEntity wheelchair
+                : com.dianzhong.lunyi.entity.WheelchairEntity.activeWheelchairs()) {
+            if (wheelchair.level() == null) {
+                continue;
+            }
+            if (level == null) {
+                level = wheelchair.level();
+            }
+            stacks.addAll(wheelchair.getPatterns());
+        }
+        if (level == null) {
+            return false;
+        }
+        for (ItemStack stack : stacks) {
+            if (stack.isEmpty()) {
+                continue;
+            }
+            IPatternDetails details = PatternDetailsHelper.decodePattern(stack, level);
+            if (details == null) {
+                continue;
+            }
+            var outs = details.getOutputs();
+            if (!outs.isEmpty() && outs.get(0).what().equals(output.what())) {
+                return true;
+            }
+        }
+        return false;
+    }
+    /**
+     * 供其它 CPU 推送样板时使用的校验入口：
+     * 通过返回 true，伪造/过期返回 false（此时我们什么都不产出，但不会取消整单）。
+     */
+    public static boolean validateForProvider(IGrid grid, IPatternDetails details) {
+        if (details == null || grid == null) {
+            return false;
+        }
+        Level level = null;
+        for (WheelchairCpuBlockEntity core : grid.getMachines(WheelchairCpuBlockEntity.class)) {
+            level = core.getLevel();
+            break;
+        }
+        if (level == null) {
+            for (com.dianzhong.lunyi.entity.WheelchairEntity wheelchair
+                    : com.dianzhong.lunyi.entity.WheelchairEntity.activeWheelchairs()) {
+                if (wheelchair.level() != null) {
+                    level = wheelchair.level();
+                    break;
+                }
+            }
+        }
+        if (level == null) {
+            return false;
+        }
+        // 天枢这类 CPU 会批量推送同一个样板：5 秒内复用结果，避免每次都全量扫配方
+        AEKey key = details.getDefinition();
+        long now = currentTick();
+        Long at = PROVIDER_CACHE_TICK.get(key);
+        if (at != null && now - at < 100) {
+            return Boolean.TRUE.equals(PROVIDER_CACHE_OK.get(key));
+        }
+        boolean ok = isRealRecipe(level, details) == Check.OK;
+        PROVIDER_CACHE_TICK.put(key, now);
+        PROVIDER_CACHE_OK.put(key, ok);
+        return ok;
+    }
+
+    private static final Map<AEKey, Long> PROVIDER_CACHE_TICK = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<AEKey, Boolean> PROVIDER_CACHE_OK = new java.util.concurrent.ConcurrentHashMap<>();
     /** Result of validating one pattern. */
     public enum Check {
         /** Pattern matches a real recipe. */
@@ -110,8 +196,124 @@ public final class WheelchairCpu implements ICraftingCPU {
     // crafting
     // ------------------------------------------------------------------
 
+    /** 其它 CPU 最近提交的任务最终产物 -> tick；用于区分"最终产物"和"中间材料"。 */
+    private static final Map<AEKey, Long> JOB_FINALS = new java.util.concurrent.ConcurrentHashMap<>();
+
+    public static void rememberJobFinal(AEKey key) {
+        if (key != null) {
+            JOB_FINALS.put(key, currentTick());
+        }
+    }
+
+    /** 这个产物是不是某个外部任务正在等的最终结果（而不是中间材料）。 */
+    public static boolean isJobFinal(AEKey key) {
+        Long at = key == null ? null : JOB_FINALS.get(key);
+        if (at == null) {
+            return false;
+        }
+        if (currentTick() - at > 1200) {
+            JOB_FINALS.remove(key);
+            return false;
+        }
+        return true;
+    }
+    /** 校验结果缓存：样板 -> (tick, 是否合法)。避免每次规划都重新扫配方。 */
+    private static final Map<AEKey, Long> CACHE_TICK = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final Map<AEKey, Boolean> CACHE_OK = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final int CACHE_TICKS = 200;
+
+    /**
+     * 这张样板是否可以对外公开（可被其它 CPU / 终端规划）。
+     * <p>
+     * 校验不通过的样板直接不公开，这样伪造样板的请求根本不会生成，也就不会出现
+     * "请求永远无法完成 -> 无限重试" 的卡死。
+     */
+    public static boolean isAdvertisable(net.minecraft.world.level.Level level, IPatternDetails details) {
+        if (level == null || details == null) {
+            return false;
+        }
+        AEKey key = details.getDefinition();
+        long now = currentTick();
+        if (key != null) {
+            Long at = CACHE_TICK.get(key);
+            if (at != null && now - at < CACHE_TICKS) {
+                return Boolean.TRUE.equals(CACHE_OK.get(key));
+            }
+        }
+        boolean ok;
+        try {
+            ok = isRealRecipe(level, details) == Check.OK;
+        } catch (Throwable t) {
+            ok = false;
+        }
+        if (key != null) {
+            CACHE_TICK.put(key, now);
+            CACHE_OK.put(key, ok);
+        }
+        return ok;
+    }
+    /** 同一物品在短时间内被反复请求的次数（用于打断"任务永远完不成 -> 无限重试"）。 */
+    private static final Map<AEKey, long[]> REQUEST_BURST = new java.util.concurrent.ConcurrentHashMap<>();
+
+    private static final int BURST_WINDOW_TICKS = 100;
+    private static final int BURST_LIMIT = 4;
+
+    /** @return true 表示这次请求属于失控重试，应该放弃接管 */
+    private static boolean isRunawayRequest(AEKey key) {
+        long now = currentTick();
+        long[] state = REQUEST_BURST.computeIfAbsent(key, k -> new long[]{now, 0L});
+        if (now - state[0] > BURST_WINDOW_TICKS) {
+            state[0] = now;
+            state[1] = 0L;
+        }
+        state[1]++;
+        if (state[1] > BURST_LIMIT) {
+            return true;
+        }
+        return false;
+    }
+    /** 最近被拒绝的物品 -> 记录时的 tick；用于防止请求方反复重试把服务器拖死。 */
+    private static final Map<AEKey, Long> RECENTLY_BLOCKED = new HashMap<>();
+
+    private static final int BLOCK_MEMORY_TICKS = 40;
+
+    private static long currentTick() {
+        var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        return server == null ? 0L : server.getTickCount();
+    }
+
+    private static boolean recentlyBlocked(AEKey key) {
+        Long at = RECENTLY_BLOCKED.get(key);
+        if (at == null) {
+            return false;
+        }
+        if (currentTick() - at > BLOCK_MEMORY_TICKS) {
+            RECENTLY_BLOCKED.remove(key);
+            return false;
+        }
+        return true;
+    }
+
+    private static void markBlocked(AEKey key) {
+        if (key != null) {
+            RECENTLY_BLOCKED.put(key, currentTick());
+        }
+    }
     public static boolean perform(IGrid grid, @Nullable GenericStack output) {
         if (output == null) {
+            return false;
+        }
+
+        // 刚被拒绝过的物品：请求方往往会立刻重试，这里直接短路，避免服务器空转
+        if (recentlyBlocked(output.what())) {
+            REJECTED.set(true);
+            return false;
+        }
+        if (isRunawayRequest(output.what())) {
+            ae2lunyi.LOGGER.warn(
+                    "Wheelchair CPU: {} is being requested in a tight loop, backing off", output.what());
+            UNVERIFIED.set(true);
             return false;
         }
         REJECTED.set(false);
@@ -607,8 +809,8 @@ public final class WheelchairCpu implements ICraftingCPU {
             boolean looksLikeOutput = name.equals("output") || name.equals("outputs")
                     || name.equals("result") || name.equals("results")
                     || name.equals("getResultItem") || name.equals("getResultStacks")
-                    || name.matches("get[A-Za-z]*Output[A-Za-z]*")
-                    || name.matches("get[A-Za-z]*Result[A-Za-z]*");
+                    || (name.startsWith("get") && name.contains("Output"))
+                    || (name.startsWith("get") && name.contains("Result"));
             if (!looksLikeOutput) {
                 continue;
             }
@@ -745,7 +947,7 @@ public final class WheelchairCpu implements ICraftingCPU {
             String name = method.getName();
             boolean looksLikeInput = name.equals("getIngredients") || name.equals("getCatalyst")
                     || name.equals("catalyst")
-                    || name.matches("(?i)[a-z]*input[a-z]*");
+                    || name.toLowerCase(java.util.Locale.ROOT).contains("input");
             if (!looksLikeInput || method.getParameterCount() != 0) {
                 continue;
             }
@@ -832,7 +1034,7 @@ public final class WheelchairCpu implements ICraftingCPU {
             String name = method.getName();
             boolean looksLikeInput = name.equals("getIngredients") || name.equals("getCatalyst")
                     || name.equals("catalyst")
-                    || name.matches("(?i)[a-z]*input[a-z]*");
+                    || name.toLowerCase(java.util.Locale.ROOT).contains("input");
             if (!looksLikeInput || method.getParameterCount() != 0) {
                 continue;
             }
@@ -1056,8 +1258,8 @@ public final class WheelchairCpu implements ICraftingCPU {
             boolean looksLikeOutput = name.equals("output") || name.equals("outputs")
                     || name.equals("result") || name.equals("results")
                     || name.equals("getResultItem") || name.equals("getResultStacks")
-                    || name.matches("get[A-Za-z]*Output[A-Za-z]*")
-                    || name.matches("get[A-Za-z]*Result[A-Za-z]*");
+                    || (name.startsWith("get") && name.contains("Output"))
+                    || (name.startsWith("get") && name.contains("Result"));
             if (!looksLikeOutput) {
                 continue;
             }
@@ -1151,8 +1353,8 @@ public final class WheelchairCpu implements ICraftingCPU {
             boolean looksLikeOutput = name.equals("output") || name.equals("outputs")
                     || name.equals("result") || name.equals("results")
                     || name.equals("getResultItem") || name.equals("getResultStacks")
-                    || name.matches("get[A-Za-z]*Output[A-Za-z]*")
-                    || name.matches("get[A-Za-z]*Result[A-Za-z]*");
+                    || (name.startsWith("get") && name.contains("Output"))
+                    || (name.startsWith("get") && name.contains("Result"));
             if (!looksLikeOutput) {
                 continue;
             }

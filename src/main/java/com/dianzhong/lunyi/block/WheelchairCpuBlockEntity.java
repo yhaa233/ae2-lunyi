@@ -244,7 +244,7 @@ public class WheelchairCpuBlockEntity extends CraftingBlockEntity
     @Override
     public appeng.api.inventories.InternalInventory getTerminalPatternInventory() {
         if (this.terminalInventory == null) {
-            this.terminalInventory = new com.dianzhong.lunyi.compat.ae2.PatternListInventory(this.patterns);
+            this.terminalInventory = new com.dianzhong.lunyi.compat.ae2.PatternListInventory(this.patterns, this::patternsChanged);
         }
         return this.terminalInventory;
     }

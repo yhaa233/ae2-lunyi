@@ -19,3 +19,4 @@ Thumbs.db
 # 本地备份
 backup/
 patch-jar.ps1
+hang.txt

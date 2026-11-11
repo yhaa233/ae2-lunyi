@@ -33,12 +33,30 @@ public abstract class FriendlyByteBufNbtMixin {
             at = @At("HEAD"), cancellable = true, require = 0, expect = 0)
     private void ae2lunyi$safeWriteNbt(Tag tag, CallbackInfoReturnable<FriendlyByteBuf> cir) {
         FriendlyByteBuf self = (FriendlyByteBuf) (Object) this;
+        int mark = self.writerIndex();
         if (!write(self, tag)) {
-            ae2lunyi.LOGGER.error("Malformed NBT suppressed while writing a packet");
-            write(self, new CompoundTag());
+            // 关键：失败时必须回滚已写入的半截字节，否则整个包的结构会坏掉，
+            // 客户端解码失败就会把玩家踢下线
+            self.writerIndex(mark);
+            if (REPORTED.compareAndSet(false, true)) {
+                String dump = String.valueOf(tag);
+                if (dump.length() > 400) {
+                    dump = dump.substring(0, 400) + "...";
+                }
+                ae2lunyi.LOGGER.error("Malformed NBT suppressed while writing a packet; first offender: {}", dump);
+                ae2lunyi.LOGGER.error("Malformed NBT detail", LAST_ERROR);
+            }
+            if (!write(self, new CompoundTag())) {
+                self.writerIndex(mark);
+                write(self, new CompoundTag());
+            }
         }
         cir.setReturnValue(self);
     }
+
+    private static final java.util.concurrent.atomic.AtomicBoolean REPORTED =
+            new java.util.concurrent.atomic.AtomicBoolean();
+    private static volatile Throwable LAST_ERROR;
 
     private static boolean write(FriendlyByteBuf buffer, Tag tag) {
         try {
@@ -47,6 +65,7 @@ public abstract class FriendlyByteBufNbtMixin {
             out.flush();
             return true;
         } catch (Throwable t) {
+            LAST_ERROR = t;
             return false;
         }
     }
