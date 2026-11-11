@@ -578,6 +578,29 @@ public class WheelchairEntity extends Mob {
         rider.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, NIGHT_VISION_DURATION_TICKS, 0,
                 false, false, true));
     }
+
+    /** Cross-dimension follow: rebuild this wheelchair in the target level and mount the rider. */
+    private void relocateToLevel(net.minecraft.server.level.ServerLevel target, Player rider) {
+        try {
+            var type = com.dianzhong.lunyi.registry.ModEntities.WHEELCHAIR.get();
+            WheelchairEntity copy = type.create(target);
+            if (copy == null) {
+                return;
+            }
+            var tag = new CompoundTag();
+            this.saveWithoutId(tag);
+            copy.load(tag);
+            copy.moveTo(rider.getX(), rider.getY(), rider.getZ(), rider.getYRot(), 0.0F);
+            copy.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+            target.addFreshEntity(copy);
+            rider.startRiding(copy, true);
+            copy.followRiderId = rider.getUUID();
+            copy.followTicks = 0;
+            this.discard();
+        } catch (Throwable t) {
+            com.dianzhong.lunyi.ae2lunyi.LOGGER.error("Wheelchair: cross-dimension follow failed", t);
+        }
+    }
     /**
      * Catch up with a rider who was teleported away: move next to them and mount again.
      * A normal dismount keeps the player within 6 blocks, so it never triggers.
@@ -594,11 +617,16 @@ public class WheelchairEntity extends Mob {
             return;
         }
         Player rider = serverLevel.getServer().getPlayerList().getPlayer(this.followRiderId);
-        if (rider == null || rider.level() != this.level() || rider.getVehicle() != null) {
+        if (rider == null || rider.getVehicle() != null) {
             this.followRiderId = null;
             return;
         }
-        if (rider.distanceToSqr(this) < 36.0D) {
+        // cross-dimension: rebuild the wheelchair in the rider's level and mount them again
+        if (rider.level() != this.level()) {
+            if (rider.level() instanceof net.minecraft.server.level.ServerLevel target) {
+                this.relocateToLevel(target, rider);
+            }
+            this.followRiderId = null;
             return;
         }
         this.setPos(rider.getX(), rider.getY(), rider.getZ());
