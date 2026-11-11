@@ -65,6 +65,12 @@ public class WheelchairEntity extends Mob {
 
     /** 服务端用来判断双击空格。 */
     private boolean lastJumping;
+
+    /** UUID of the last rider, used to catch up after a teleport. */
+    @Nullable
+    private java.util.UUID followRiderId;
+    /** Ticks spent without that rider. */
+    private int followTicks;
     private int lastJumpTick = -DOUBLE_TAP_WINDOW_TICKS - 1;
 
     /** 客户端渲染用：大轮累计转角（弧度）和上一 tick 的值，用来做插值。 */
@@ -506,15 +512,18 @@ public class WheelchairEntity extends Mob {
         Ae2Compat.tickGridNode(this);
 
         if (this.getFirstPassenger() instanceof Player rider) {
+            this.followRiderId = rider.getUUID();
+            this.followTicks = 0;
             this.handleFlightToggle(rider);
             if (this.tickCount % EFFECT_REFRESH_INTERVAL == 0) {
                 this.applyRiderBuffs(rider);
             }
         } else {
             this.lastJumping = false;
+            this.tickFollowLostRider();
         }
-    }
 
+    }
     /**
      * 轮子转动完全由客户端算：只有贴地且没在飞的时候才累计，
      * 所以飞行时轮子会自然停住，落地后接着转。
@@ -568,5 +577,35 @@ public class WheelchairEntity extends Mob {
         // 夜视单独给 1 分钟（其它效果还是 10 秒）
         rider.addEffect(new MobEffectInstance(MobEffects.NIGHT_VISION, NIGHT_VISION_DURATION_TICKS, 0,
                 false, false, true));
+    }
+    /**
+     * Catch up with a rider who was teleported away: move next to them and mount again.
+     * A normal dismount keeps the player within 6 blocks, so it never triggers.
+     */
+    private void tickFollowLostRider() {
+        if (this.followRiderId == null) {
+            return;
+        }
+        if (++this.followTicks > 200) {
+            this.followRiderId = null;
+            return;
+        }
+        if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            return;
+        }
+        Player rider = serverLevel.getServer().getPlayerList().getPlayer(this.followRiderId);
+        if (rider == null || rider.level() != this.level() || rider.getVehicle() != null) {
+            this.followRiderId = null;
+            return;
+        }
+        if (rider.distanceToSqr(this) < 36.0D) {
+            return;
+        }
+        this.setPos(rider.getX(), rider.getY(), rider.getZ());
+        this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
+        this.setYRot(rider.getYRot());
+        rider.startRiding(this, true);
+        this.followRiderId = rider.getUUID();
+        this.followTicks = 0;
     }
 }
