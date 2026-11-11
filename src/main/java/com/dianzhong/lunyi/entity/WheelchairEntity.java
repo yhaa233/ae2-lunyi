@@ -76,6 +76,10 @@ public class WheelchairEntity extends Mob {
     private net.minecraft.world.phys.Vec3 followOrigin;
     /** Last known rider position while seated. */
     private net.minecraft.world.phys.Vec3 riderLastPos;
+    /** Whether we currently hold a forced chunk ticket. */
+    private boolean chunkForced;
+    private int forcedChunkX;
+    private int forcedChunkZ;
     private int lastJumpTick = -DOUBLE_TAP_WINDOW_TICKS - 1;
 
     /** 客户端渲染用：大轮累计转角（弧度）和上一 tick 的值，用来做插值。 */
@@ -266,6 +270,7 @@ public class WheelchairEntity extends Mob {
     @Override
     public void remove(RemovalReason reason) {
         ACTIVE.remove(this);
+        this.releaseChunkTicket();
         Ae2Compat.removeGridNode(this);
         super.remove(reason);
     }
@@ -534,6 +539,38 @@ public class WheelchairEntity extends Mob {
             this.tickFollowLostRider();
         }
 
+        // keep our chunk loaded while someone is (or just was) riding, so we keep ticking
+        // even after the rider teleports to another chunk or dimension
+        if (this.tickCount % 20 == 0) {
+            this.maintainChunkTicket(this.getFirstPassenger() != null || this.followRiderId != null);
+        }
+    }
+
+    /** Force-load the chunk we are in so this entity keeps ticking when the rider leaves. */
+    private void maintainChunkTicket(boolean keepLoaded) {
+        if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
+            return;
+        }
+        int chunkX = this.chunkPosition().x;
+        int chunkZ = this.chunkPosition().z;
+
+        if (this.chunkForced && (!keepLoaded || this.forcedChunkX != chunkX || this.forcedChunkZ != chunkZ)) {
+            serverLevel.setChunkForced(this.forcedChunkX, this.forcedChunkZ, false);
+            this.chunkForced = false;
+        }
+        if (keepLoaded && !this.chunkForced) {
+            serverLevel.setChunkForced(chunkX, chunkZ, true);
+            this.chunkForced = true;
+            this.forcedChunkX = chunkX;
+            this.forcedChunkZ = chunkZ;
+        }
+    }
+
+    private void releaseChunkTicket() {
+        if (this.chunkForced && this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
+            serverLevel.setChunkForced(this.forcedChunkX, this.forcedChunkZ, false);
+            this.chunkForced = false;
+        }
     }
     /**
      * 轮子转动完全由客户端算：只有贴地且没在飞的时候才累计，
