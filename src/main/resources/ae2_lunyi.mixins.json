@@ -7,7 +7,8 @@
     "CraftingCpuLogicMixin",
     "CraftingServiceMixin",
     "CraftingSubmitMixin",
-    "TooltipsMixin"
+    "TooltipsMixin",
+    "EntityTeleportMixin"
   ],
   "injectors": {
     "defaultRequire": 1
