@@ -91,9 +91,7 @@ public class WheelchairCpuBlock extends AbstractCraftingUnitBlock<WheelchairCpuB
                 core.getPatterns().add(stack.copyWithCount(1));
                 moved++;
             }
-            if (!player.getAbilities().instabuild) {
-                inv.setItem(i, ItemStack.EMPTY);
-            }
+            // 只复制：不动背包里的原件，避免看起来像"样板被清空变回空白样板"
         }
         if (moved > 0) {
             core.patternsChanged();
@@ -147,6 +145,13 @@ public class WheelchairCpuBlock extends AbstractCraftingUnitBlock<WheelchairCpuB
     protected InteractionResult useWithoutItem(BlockState state, Level level, BlockPos pos, Player player,
                                                BlockHitResult hit) {
         if (!level.isClientSide && level.getBlockEntity(pos) instanceof WheelchairCpuBlockEntity be) {
+        if (!level.isClientSide) {
+            ItemStack heldNow = player.getMainHandItem();
+            com.dianzhong.lunyi.ae2lunyi.LOGGER.info(
+                    "core clicked: player={} sneak={} held={} encoded={}",
+                    player.getName().getString(), player.isSecondaryUseActive(), heldNow,
+                    com.dianzhong.lunyi.compat.ae2.Ae2Compat.isEncodedPattern(heldNow));
+        }
             // Shift + 右键：把背包里的编码样板一键塞进这个核心的样板仓
             if (player.isSecondaryUseActive()) {
                 int moved = 0;

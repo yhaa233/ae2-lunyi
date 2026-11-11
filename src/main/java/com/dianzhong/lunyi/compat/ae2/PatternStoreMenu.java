@@ -132,6 +132,35 @@ public class PatternStoreMenu extends AbstractContainerMenu {
             }
             this.view.savePage();
             this.data.set(0, page + 1);
+        } else if (id == 2) {
+            // 从玩家背包导入全部编码样板（避开右键被别的模组拦截的问题）
+            int imported = 0;
+            var inv = player.getInventory();
+            for (int slot = 0; slot < inv.getContainerSize(); slot++) {
+                ItemStack stack = inv.getItem(slot);
+                if (stack.isEmpty() || !Ae2Compat.isEncodedPattern(stack)) {
+                    continue;
+                }
+                if ((!com.dianzhong.lunyi.Config.PATTERN_STORE_ALL_PATTERNS.get()
+                        || !com.dianzhong.lunyi.Config.STRICT_PATTERN_VALIDATION.get())
+                        && !Ae2Compat.isCraftingPattern(stack)) {
+                    continue;
+                }
+                this.view.getBackingList().add(stack.copyWithCount(1));
+                imported++;
+                // 上传后从背包移除（创造模式保留）
+                if (!player.getAbilities().instabuild) {
+                    inv.setItem(slot, ItemStack.EMPTY);
+                }
+            }
+            if (imported > 0) {
+                this.view.setPage(this.getPage());
+                this.view.loadPage();
+                this.viewChanged();
+            }
+            player.displayClientMessage(net.minecraft.network.chat.Component.translatable(
+                    "message.ae2_lunyi.uploaded", imported), true);
+            return true;
         } else {
             return false;
         }
@@ -175,6 +204,10 @@ public class PatternStoreMenu extends AbstractContainerMenu {
      */
     private static final class PageView extends SimpleContainer {
         private final List<ItemStack> list;
+
+        List<ItemStack> getBackingList() {
+            return this.list;
+        }
         private int page;
         @Nullable
         private final Runnable onChanged;

@@ -51,6 +51,11 @@ public class PatternStoreScreen extends AbstractContainerScreen<PatternStoreMenu
         this.addRenderableWidget(Button.builder(Component.literal(">"), b ->
                         this.minecraft.gameMode.handleInventoryButtonClick(this.menu.containerId, 1))
                 .bounds(this.leftPos + 36, y, 24, 18).build());
+
+        // 从背包导入全部样板（避开右键被其它模组拦截）
+        this.addRenderableWidget(Button.builder(Component.literal("导入"), b ->
+                        this.minecraft.gameMode.handleInventoryButtonClick(this.menu.containerId, 2))
+                .bounds(this.leftPos + 70, this.topPos + 4, 42, 14).build());
     }
 
     @Override

@@ -31,7 +31,8 @@ import java.util.WeakHashMap;
  * 它同时是：AE2 的合成单元（能组成 CPU 集群）、样板提供者（规划阶段可见）、
  * 以及一个带样板仓的存储。产物交付走 {@code WheelchairCpu} 里的绕行逻辑。
  */
-public class WheelchairCpuBlockEntity extends CraftingBlockEntity {
+public class WheelchairCpuBlockEntity extends CraftingBlockEntity
+        implements appeng.helpers.patternprovider.PatternContainer {
     /** 这个核心自己的样板仓，容量不设上限。 */
     private final List<ItemStack> patterns = new ArrayList<>();
 
@@ -227,5 +228,33 @@ public class WheelchairCpuBlockEntity extends CraftingBlockEntity {
             }
         }
         data.put("patterns", list);
+    }
+    // ------------------------------------------------------------------
+    // 样板管理终端（Pattern Access Terminal）接入
+    // ------------------------------------------------------------------
+
+    private appeng.api.inventories.InternalInventory terminalInventory;
+
+    @Override
+    public appeng.api.networking.IGrid getGrid() {
+        var node = this.getMainNode().getNode();
+        return node == null ? null : node.getGrid();
+    }
+
+    @Override
+    public appeng.api.inventories.InternalInventory getTerminalPatternInventory() {
+        if (this.terminalInventory == null) {
+            this.terminalInventory = new com.dianzhong.lunyi.compat.ae2.PatternListInventory(this.patterns);
+        }
+        return this.terminalInventory;
+    }
+
+    @Override
+    public appeng.api.implementations.blockentities.PatternContainerGroup getTerminalGroup() {
+        return new appeng.api.implementations.blockentities.PatternContainerGroup(
+                appeng.api.stacks.AEItemKey.of(
+                        com.dianzhong.lunyi.registry.ModBlocks.WHEELCHAIR_CPU_ITEM.get().getDefaultInstance()),
+                net.minecraft.network.chat.Component.translatable("block.ae2_lunyi.wheelchair_cpu"),
+                java.util.List.of());
     }
 }
