@@ -71,6 +71,11 @@ public class WheelchairEntity extends Mob {
     private java.util.UUID followRiderId;
     /** Ticks spent without that rider. */
     private int followTicks;
+    /** Rider position when they left the seat, used to detect a teleport jump. */
+    @Nullable
+    private net.minecraft.world.phys.Vec3 followOrigin;
+    /** Last known rider position while seated. */
+    private net.minecraft.world.phys.Vec3 riderLastPos;
     private int lastJumpTick = -DOUBLE_TAP_WINDOW_TICKS - 1;
 
     /** 客户端渲染用：大轮累计转角（弧度）和上一 tick 的值，用来做插值。 */
@@ -514,12 +519,18 @@ public class WheelchairEntity extends Mob {
         if (this.getFirstPassenger() instanceof Player rider) {
             this.followRiderId = rider.getUUID();
             this.followTicks = 0;
+            this.followOrigin = null;
+            this.riderLastPos = rider.position();
             this.handleFlightToggle(rider);
             if (this.tickCount % EFFECT_REFRESH_INTERVAL == 0) {
                 this.applyRiderBuffs(rider);
             }
         } else {
             this.lastJumping = false;
+            if (this.followOrigin == null && this.followRiderId != null) {
+                // remember where the rider was sitting, so a teleport jump can be detected
+                this.followOrigin = this.riderLastPos != null ? this.riderLastPos : this.position();
+            }
             this.tickFollowLostRider();
         }
 
@@ -602,15 +613,17 @@ public class WheelchairEntity extends Mob {
         }
     }
     /**
-     * Catch up with a rider who was teleported away: move next to them and mount again.
-     * A normal dismount keeps the player within 6 blocks, so it never triggers.
+     * Only follow the rider when they jumped a long distance right after dismounting
+     * (which is what a teleport looks like). Walking away never triggers it.
      */
     private void tickFollowLostRider() {
         if (this.followRiderId == null) {
             return;
         }
-        if (++this.followTicks > 200) {
+        // watch for one second after the rider left the seat
+        if (++this.followTicks > 20) {
             this.followRiderId = null;
+            this.followOrigin = null;
             return;
         }
         if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
@@ -619,21 +632,25 @@ public class WheelchairEntity extends Mob {
         Player rider = serverLevel.getServer().getPlayerList().getPlayer(this.followRiderId);
         if (rider == null || rider.getVehicle() != null) {
             this.followRiderId = null;
+            this.followOrigin = null;
             return;
         }
-        // cross-dimension: rebuild the wheelchair in the rider's level and mount them again
+        // a real teleport jumps far in a single tick; walking cannot
+        double moved = this.followOrigin == null ? 0.0D : this.followOrigin.distanceToSqr(rider.position());
+        if (moved < 1024.0D) {
+            return;
+        }
+        this.followRiderId = null;
+        this.followOrigin = null;
         if (rider.level() != this.level()) {
             if (rider.level() instanceof net.minecraft.server.level.ServerLevel target) {
                 this.relocateToLevel(target, rider);
             }
-            this.followRiderId = null;
             return;
         }
         this.setPos(rider.getX(), rider.getY(), rider.getZ());
         this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
         this.setYRot(rider.getYRot());
         rider.startRiding(this, true);
-        this.followRiderId = rider.getUUID();
-        this.followTicks = 0;
     }
 }
