@@ -66,25 +66,6 @@ public class WheelchairEntity extends Mob {
     /** 服务端用来判断双击空格。 */
     private boolean lastJumping;
 
-    /** UUID of the last rider, used to catch up after a teleport. */
-    @Nullable
-    private java.util.UUID followRiderId;
-    /** Ticks spent without that rider. */
-    private int followTicks;
-    /** Rider position when they left the seat, used to detect a teleport jump. */
-    @Nullable
-    private net.minecraft.world.phys.Vec3 followOrigin;
-    /** Last known rider position while seated. */
-    private net.minecraft.world.phys.Vec3 riderLastPos;
-    /** Whether we currently hold a forced chunk ticket. */
-    /** Dedicated ticket type so vanilla never clears it when player tickets are refreshed. */
-    private static final net.minecraft.server.level.TicketType<net.minecraft.world.level.ChunkPos> WHEELCHAIR_TICKET =
-            net.minecraft.server.level.TicketType.create("ae2_lunyi_wheelchair",
-                    java.util.Comparator.comparingLong(net.minecraft.world.level.ChunkPos::toLong), 0);
-
-    private boolean chunkForced;
-    private int forcedChunkX;
-    private int forcedChunkZ;
     private int lastJumpTick = -DOUBLE_TAP_WINDOW_TICKS - 1;
 
     /** 客户端渲染用：大轮累计转角（弧度）和上一 tick 的值，用来做插值。 */
@@ -275,7 +256,6 @@ public class WheelchairEntity extends Mob {
     @Override
     public void remove(RemovalReason reason) {
         ACTIVE.remove(this);
-        this.releaseChunkTicket();
         Ae2Compat.removeGridNode(this);
         super.remove(reason);
     }
@@ -414,27 +394,50 @@ public class WheelchairEntity extends Mob {
     }
 
     private void breakApart(Player player) {
-        this.ejectPassengers();
+        this.dropSpawnEggWithContents();
+        ae2lunyi.LOGGER.debug("Wheelchair at {} removed by {}", this.blockPosition(), player.getName().getString());
+        this.discard();
+    }
 
+    /** 被击杀时也掉落带数据的生成蛋。 */
+    @Override
+    public void die(DamageSource source) {
+        if (!this.level().isClientSide()) {
+            this.dropSpawnEggWithContents();
+        }
+        super.die(source);
+    }
+
+    /**
+     * 掉落一个生成蛋，蛋里携带轮椅的全部状态：
+     * 样板仓里的样板、绑定的缠绕奇点、终端的排序方式与升降序。
+     * <p>
+     * 数据放在 {@code ENTITY_DATA} 组件里，用这个蛋生成轮椅时原版会把 NBT 重新加载回实体。
+     */
+    private void dropSpawnEggWithContents() {
+        if (this.level().isClientSide()) {
+            return;
+        }
+        this.ejectPassengers();
         ItemStack egg = new ItemStack(ModItems.WHEELCHAIR_SPAWN_EGG.get());
+
+        CompoundTag everything = new CompoundTag();
+        this.saveWithoutId(everything);
+        CompoundTag kept = new CompoundTag();
+        for (String key : new String[]{"AeKey", "AePatterns", "AeSortBy", "AeSortDir"}) {
+            if (everything.contains(key)) {
+                kept.put(key, everything.get(key));
+            }
+        }
+        if (!kept.isEmpty()) {
+            egg.set(net.minecraft.core.component.DataComponents.ENTITY_DATA,
+                    net.minecraft.world.item.component.CustomData.of(kept));
+        }
+
         ItemEntity drop = new ItemEntity(this.level(), this.getX(), this.getY() + 0.4D, this.getZ(), egg);
         drop.setDefaultPickUpDelay();
         this.level().addFreshEntity(drop);
-
-        // 随身样板仓里的样板也一起返还，别让它们跟着实体消失
-        for (ItemStack pattern : new java.util.ArrayList<>(this.getPatterns())) {
-            if (pattern.isEmpty()) {
-                continue;
-            }
-            ItemEntity patternDrop = new ItemEntity(this.level(), this.getX(), this.getY() + 0.4D, this.getZ(),
-                    pattern.copy());
-            patternDrop.setDefaultPickUpDelay();
-            this.level().addFreshEntity(patternDrop);
-        }
         this.getPatterns().clear();
-
-        ae2lunyi.LOGGER.debug("Wheelchair at {} removed by {}", this.blockPosition(), player.getName().getString());
-        this.discard();
     }
 
     // ------------------------------------------------------------------
@@ -527,67 +530,15 @@ public class WheelchairEntity extends Mob {
         Ae2Compat.tickGridNode(this);
 
         if (this.getFirstPassenger() instanceof Player rider) {
-            this.followRiderId = rider.getUUID();
-            this.followTicks = 0;
-            this.followOrigin = null;
-            this.riderLastPos = rider.position();
             this.handleFlightToggle(rider);
             if (this.tickCount % EFFECT_REFRESH_INTERVAL == 0) {
                 this.applyRiderBuffs(rider);
             }
         } else {
             this.lastJumping = false;
-            if (this.followOrigin == null && this.followRiderId != null) {
-                // remember where the rider was sitting, so a teleport jump can be detected
-                this.followOrigin = this.riderLastPos != null ? this.riderLastPos : this.position();
-            }
-            this.tickFollowLostRider();
-        }
-
-        // keep our chunk loaded while someone is (or just was) riding, so we keep ticking
-        // even after the rider teleports to another chunk or dimension
-        if (this.tickCount % 20 == 0) {
-            this.maintainChunkTicket(this.getFirstPassenger() != null || this.followRiderId != null);
         }
     }
 
-    /** Keep the chunk around us loaded (transient ticket) so we keep ticking after the rider leaves. */
-    private void maintainChunkTicket(boolean keepLoaded) {
-        if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
-            return;
-        }
-        int chunkX = this.chunkPosition().x;
-        int chunkZ = this.chunkPosition().z;
-
-        if (this.chunkForced && (!keepLoaded || this.forcedChunkX != chunkX || this.forcedChunkZ != chunkZ)) {
-            this.releaseTicket(serverLevel, this.forcedChunkX, this.forcedChunkZ);
-            this.chunkForced = false;
-        }
-        if (keepLoaded && !this.chunkForced) {
-            this.addTicket(serverLevel, chunkX, chunkZ);
-            this.chunkForced = true;
-            this.forcedChunkX = chunkX;
-            this.forcedChunkZ = chunkZ;
-        }
-    }
-
-    /** Transient ticket, radius 1 keeps the 3x3 around us loaded; never written to chunks.dat. */
-    private void addTicket(net.minecraft.server.level.ServerLevel level, int chunkX, int chunkZ) {
-        var pos = new net.minecraft.world.level.ChunkPos(chunkX, chunkZ);
-        level.getChunkSource().addRegionTicket(WHEELCHAIR_TICKET, pos, 1, pos);
-    }
-
-    private void releaseTicket(net.minecraft.server.level.ServerLevel level, int chunkX, int chunkZ) {
-        var pos = new net.minecraft.world.level.ChunkPos(chunkX, chunkZ);
-        level.getChunkSource().removeRegionTicket(WHEELCHAIR_TICKET, pos, 1, pos);
-    }
-
-    private void releaseChunkTicket() {
-        if (this.chunkForced && this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel) {
-            this.releaseTicket(serverLevel, this.forcedChunkX, this.forcedChunkZ);
-            this.chunkForced = false;
-        }
-    }
     /**
      * 轮子转动完全由客户端算：只有贴地且没在飞的时候才累计，
      * 所以飞行时轮子会自然停住，落地后接着转。
@@ -643,86 +594,4 @@ public class WheelchairEntity extends Mob {
                 false, false, true));
     }
 
-    /** Cross-dimension follow: rebuild this wheelchair in the target level and mount the rider. */
-    private void relocateToLevel(net.minecraft.server.level.ServerLevel target, Player rider) {
-        try {
-            var type = com.dianzhong.lunyi.registry.ModEntities.WHEELCHAIR.get();
-            WheelchairEntity copy = type.create(target);
-            if (copy == null) {
-                return;
-            }
-            var tag = new CompoundTag();
-            this.saveWithoutId(tag);
-            copy.load(tag);
-            copy.moveTo(rider.getX(), rider.getY(), rider.getZ(), rider.getYRot(), 0.0F);
-            copy.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
-            target.addFreshEntity(copy);
-            rider.startRiding(copy, true);
-            copy.followRiderId = rider.getUUID();
-            copy.followTicks = 0;
-            this.discard();
-        } catch (Throwable t) {
-            com.dianzhong.lunyi.ae2lunyi.LOGGER.error("Wheelchair: cross-dimension follow failed", t);
-        }
-    }
-    /**
-     * Follow the rider after a teleport, but never yank them back.
-     * <ul>
-     *   <li>Still seated but far from us: the server moved the rider, so move with them.</li>
-     *   <li>Not seated: only react when they jumped a long way within the 1 second window.</li>
-     * </ul>
-     */
-    private void tickFollowLostRider() {
-        if (this.followRiderId == null) {
-            return;
-        }
-        // watch for one second after the rider left the seat
-        if (++this.followTicks > 20) {
-            this.followRiderId = null;
-            this.followOrigin = null;
-            return;
-        }
-        if (!(this.level() instanceof net.minecraft.server.level.ServerLevel serverLevel)) {
-            return;
-        }
-        Player rider = serverLevel.getServer().getPlayerList().getPlayer(this.followRiderId);
-        if (rider == null) {
-            this.followRiderId = null;
-            this.followOrigin = null;
-            return;
-        }
-        // still sitting on us: follow if the server moved them away
-        if (rider.getVehicle() == this) {
-            if (rider.level() == this.level()
-                    && rider.position().distanceToSqr(this.position()) > 16.0D) {
-                this.setPos(rider.getX(), rider.getY(), rider.getZ());
-                this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
-                this.setYRot(rider.getYRot());
-            }
-            return;
-        }
-        if (rider.getVehicle() != null) {
-            // riding something else: forget it
-            this.followRiderId = null;
-            this.followOrigin = null;
-            return;
-        }
-        // not seated: require a teleport-sized jump, far beyond any walking speed
-        double moved = this.followOrigin == null ? 0.0D : this.followOrigin.distanceToSqr(rider.position());
-        if (moved < 4096.0D) {
-            return;
-        }
-        this.followRiderId = null;
-        this.followOrigin = null;
-        if (rider.level() != this.level()) {
-            if (rider.level() instanceof net.minecraft.server.level.ServerLevel target) {
-                this.relocateToLevel(target, rider);
-            }
-            return;
-        }
-        this.setPos(rider.getX(), rider.getY(), rider.getZ());
-        this.setDeltaMovement(net.minecraft.world.phys.Vec3.ZERO);
-        this.setYRot(rider.getYRot());
-        rider.startRiding(this, true);
-    }
 }
