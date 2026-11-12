@@ -133,11 +133,16 @@ configurations {
 }
 
 // JEI 只用于编译期（客户端兜底查询）；运行期由整合包提供
+// JEI 只用于编译期（客户端兜底查询）；运行期由整合包提供
 def jeiJar = file("libs/jei.jar")
 if (jeiJar.exists()) {
     dependencies {
         compileOnly files(jeiJar)
-
+    }
+} else {
+    dependencies {
+        // 本地没有时从 Modrinth maven 拉取
+        compileOnly "maven.modrinth:jei:19.57.0.451"
     }
 }
 

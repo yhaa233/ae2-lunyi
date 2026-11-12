@@ -61,18 +61,21 @@ public final class JeiRecipeExtractor {
                 new ItemStack(BuiltInRegistries.ITEM.get(rl)));
     }
 
-    private static IFocus<?> fluidFocus(IFocusFactory factory, String id) {
+    private static IFocus<?> fluidFocus(IFocusFactory factory, String id) throws Exception {
         ResourceLocation rl = ResourceLocation.tryParse(id);
         if (rl == null || !BuiltInRegistries.FLUID.containsKey(rl)) {
             return null;
         }
         FluidStack stack = new FluidStack(BuiltInRegistries.FLUID.get(rl), 1000);
+        // NeoForgeTypes 在某些 JEI 制品里不随 API 提供，这里反射取，避免编译期依赖
+        Class<?> types = Class.forName("mezz.jei.api.neoforge.NeoForgeTypes");
+        Object fluidType = types.getField("FLUID_STACK").get(null);
         return factory.createFocus(RecipeIngredientRole.OUTPUT,
-                mezz.jei.api.neoforge.NeoForgeTypes.FLUID_STACK, stack);
+                (IIngredientType<Object>) fluidType, stack);
     }
 
     /** 化学品：反射拿 Mekanism 的 ChemicalStack 与 JEI 类型。 */
-    private static IFocus<?> chemicalFocus(IFocusFactory factory, String id) {
+    private static IFocus<?> chemicalFocus(IFocusFactory factory, String id) throws Exception {
         try {
             Class<?> apiClass = Class.forName("mekanism.api.MekanismAPI");
             Object registry = apiClass.getField("CHEMICAL_REGISTRY").get(null);
