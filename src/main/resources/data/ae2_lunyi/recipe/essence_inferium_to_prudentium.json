@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    { "item": "mysticalagriculture:inferium_essence" },
+    { "item": "mysticalagriculture:inferium_essence" },
+    { "item": "mysticalagriculture:inferium_essence" },
+    { "item": "mysticalagriculture:inferium_essence" },
+    { "item": "mysticalagriculture:inferium_essence" }
+  ],
+  "result": {
+    "id": "mysticalagriculture:prudentium_essence",
+    "count": 1
+  }
+}

@@ -132,6 +132,15 @@ configurations {
     runtimeClasspath.extendsFrom localRuntime
 }
 
+// JEI 只用于编译期（客户端兜底查询）；运行期由整合包提供
+def jeiJar = file("libs/jei.jar")
+if (jeiJar.exists()) {
+    dependencies {
+        compileOnly files(jeiJar)
+
+    }
+}
+
 dependencies {
     // AE2 的编译期 API（不参与打包，也不会被强制要求存在）
     compileOnly 'appeng:appliedenergistics2:19.2.18@jar'

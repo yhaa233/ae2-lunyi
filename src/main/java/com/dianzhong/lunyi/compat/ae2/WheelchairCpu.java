@@ -504,12 +504,13 @@ public final class WheelchairCpu implements ICraftingCPU {
                 if (possible.length == 0) {
                     return false;
                 }
-                if (possible[0].what().equals(what)) {
-                    ae2lunyi.LOGGER.info(
-                            "Wheelchair CPU: self-referential pattern for {}, handing back to AE2", what);
-                    return false;
-                }
                 long need = possible[0].amount() * input.getMultiplier() * amount;
+                if (possible[0].what().equals(what)) {
+                    // 自引用配方（锻造模板复制这类）：产物同时是材料，
+                    // 这份材料直接用网络存量，不再递归展开，避免无限套娃
+                    baseNeeds.merge(what, need, Long::sum);
+                    continue;
+                }
                 if (!expand(grid, level, possible[0].what(), need, byOutput, craftingService, storage,
                         source, baseNeeds, path, depth + 1)) {
                     return false;
@@ -748,14 +749,19 @@ public final class WheelchairCpu implements ICraftingCPU {
                     .producersOf(String.valueOf(wanted.getId()))) {
                 List<String> recipeSlots = com.dianzhong.lunyi.compat.CreatIdCompat.slotsOf(producerId);
                 if (!recipeSlots.isEmpty()) {
-                    if (slotMatch(recipeSlots, patternSlots)
+                    boolean matched = slotMatch(recipeSlots, patternSlots)
                             && indexOutputsCovered(producerId, patternOutputIds)
-                            && !overclaims(indexOutputAmount(producerId, wanted), outputs)) {
+                            && !overclaims(indexOutputAmount(producerId, wanted), outputs);
+                    if (matched) {
                         if (verbose) {
                             ae2lunyi.LOGGER.info("index slot check {} matched recipe {} recipeSlots={} patternSlots={}",
                                     wanted, producerId, recipeSlots, patternSlots);
                         }
                         return Check.OK;
+                    }
+                    if (verbose) {
+                        ae2lunyi.LOGGER.info("index slot MISS {} recipe={} recipeSlots={} patternSlots={}",
+                                wanted, producerId, recipeSlots, patternSlots);
                     }
                     continue;
                 }
@@ -784,6 +790,38 @@ public final class WheelchairCpu implements ICraftingCPU {
         }
         if (indexed != null) {
             if (!indexed) {
+                // 服务端索引完全查不到：先问一次客户端 JEI（补空，不推翻任何已有判定）
+                // 组件变体（药水、附魔物等）：JEI 只能证明“有配方”，无法校验材料，
+                // 为了不让“少材料也能做”成为漏洞，这里直接拒绝
+                if (String.valueOf(wanted).contains("component")) {
+                    if (verbose) {
+                        ae2lunyi.LOGGER.info("validate {} rejected: component variant, materials cannot be verified", wanted);
+                    }
+                    return Check.FORGED;
+                }
+                String itemId = String.valueOf(wanted.getId());
+                if (com.dianzhong.lunyi.compat.jei.JeiFallback.isCached(itemId)) {
+                    if (com.dianzhong.lunyi.compat.jei.JeiFallback.cachedFound(itemId)) {
+                        if (verbose) {
+                            ae2lunyi.LOGGER.info("validate {} accepted: JEI knows a recipe", wanted);
+                        }
+                        return Check.OK;
+                    }
+                } else {
+                    String kind = "item";
+                    String id = itemId;
+                    String nbt = "";
+                    if (wanted instanceof appeng.api.stacks.AEItemKey itemKey) {
+                        var stack = itemKey.getReadOnlyStack();
+                        var tag = stack.save(net.minecraft.core.RegistryAccess.EMPTY);
+                        nbt = tag.toString();
+                    } else if (wanted instanceof appeng.api.stacks.AEFluidKey fluidKey) {
+                        kind = "fluid";
+                    } else {
+                        kind = "chemical";
+                    }
+                    com.dianzhong.lunyi.compat.jei.JeiFallback.request(itemId, kind, id, nbt);
+                }
                 // no recipe anywhere produces this item: forged
                 if (verbose) {
                     ae2lunyi.LOGGER.info("validate {} rejected: no recipe anywhere", wanted);
@@ -1145,6 +1183,20 @@ public final class WheelchairCpu implements ICraftingCPU {
     }
 
     /** Every recipe slot must be covered by a pattern slot with an intersecting id and enough amount. */
+    /** 只参与、不会被消耗的催化剂：校验时不算必需材料。 */
+    private static final java.util.Set<String> CATALYSTS = java.util.Set.of(
+            "mysticalagriculture:infusion_crystal",
+            "mysticalagriculture:master_infusion_crystal",
+            "mysticalagriculture:awakened_supremium_essence_crystal");
+
+    private static boolean allCatalyst(String ids) {
+        for (String id : ids.split("\\|")) {
+            if (!CATALYSTS.contains(id.trim())) {
+                return false;
+            }
+        }
+        return true;
+    }
     private static boolean slotMatch(List<String> recipeSlots, List<String> patternSlots) {
         // patterns often split N copies into N single-item inputs, while the index keeps one slot of N,
         // so aggregate the pattern amounts per id before comparing
@@ -1159,10 +1211,13 @@ public final class WheelchairCpu implements ICraftingCPU {
                 patternAmounts.merge(id, amount, Long::sum);
             }
         }
-
         for (String recipeSlot : recipeSlots) {
             String[] recipeParts = splitSlot(recipeSlot);
             if (recipeParts == null) {
+                continue;
+            }
+            if (allCatalyst(recipeParts[0])) {
+                // 只参与、不消耗的催化剂（注魔水晶等）：不算必需材料
                 continue;
             }
             long need = parseAmount(recipeParts[1]);

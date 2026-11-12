@@ -20,3 +20,5 @@ Thumbs.db
 backup/
 patch-jar.ps1
 hang.txt
+libs/
+out/

@@ -1,0 +1,15 @@
+{
+  "type": "minecraft:crafting_shapeless",
+  "category": "misc",
+  "ingredients": [
+    { "item": "mysticalagriculture:tertium_essence" },
+    { "item": "mysticalagriculture:tertium_essence" },
+    { "item": "mysticalagriculture:tertium_essence" },
+    { "item": "mysticalagriculture:tertium_essence" },
+    { "item": "mysticalagriculture:tertium_essence" }
+  ],
+  "result": {
+    "id": "mysticalagriculture:imperium_essence",
+    "count": 1
+  }
+}

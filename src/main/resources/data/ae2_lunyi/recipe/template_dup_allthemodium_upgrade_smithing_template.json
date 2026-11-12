@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "MMM",
+    "MCM",
+    "MMM"
+  ],
+  "key": {
+    "M": {
+      "item": "minecraft:netherite_ingot"
+    },
+    "C": {
+      "item": "minecraft:deepslate"
+    }
+  },
+  "result": {
+    "id": "allthemodium:allthemodium_upgrade_smithing_template",
+    "count": 1
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "MMM",
+    "MCM",
+    "MMM"
+  ],
+  "key": {
+    "M": {
+      "item": "allthemodium:vibranium_ingot"
+    },
+    "C": {
+      "item": "minecraft:end_stone"
+    }
+  },
+  "result": {
+    "id": "allthemodium:unobtainium_upgrade_smithing_template",
+    "count": 1
+  }
+}

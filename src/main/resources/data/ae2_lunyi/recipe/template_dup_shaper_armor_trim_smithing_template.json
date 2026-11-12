@@ -1,0 +1,21 @@
+{
+  "type": "minecraft:crafting_shaped",
+  "category": "misc",
+  "pattern": [
+    "MMM",
+    "MCM",
+    "MMM"
+  ],
+  "key": {
+    "M": {
+      "item": "minecraft:diamond"
+    },
+    "C": {
+      "item": "minecraft:terracotta"
+    }
+  },
+  "result": {
+    "id": "minecraft:shaper_armor_trim_smithing_template",
+    "count": 1
+  }
+}

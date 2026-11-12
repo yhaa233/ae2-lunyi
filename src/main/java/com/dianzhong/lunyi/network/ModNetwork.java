@@ -19,6 +19,19 @@ public final class ModNetwork {
     @SubscribeEvent
     static void register(RegisterPayloadHandlersEvent event) {
         event.registrar("1")
+                .playToClient(com.dianzhong.lunyi.network.JeiQueryPayload.TYPE,
+                        com.dianzhong.lunyi.network.JeiQueryPayload.STREAM_CODEC,
+                        (payload, context) -> net.minecraft.client.Minecraft.getInstance().execute(() -> {
+                            boolean found = com.dianzhong.lunyi.compat.jei.JeiRecipeExtractor
+                                    .hasRecipe(payload.kind(), payload.id(), payload.nbt());
+                            net.neoforged.neoforge.network.PacketDistributor.sendToServer(
+                                    new com.dianzhong.lunyi.network.JeiReplyPayload(
+                                            payload.key(), found));
+                        }))
+                .playToServer(com.dianzhong.lunyi.network.JeiReplyPayload.TYPE,
+                        com.dianzhong.lunyi.network.JeiReplyPayload.STREAM_CODEC,
+                        (payload, context) -> com.dianzhong.lunyi.compat.jei.JeiFallback
+                                .accept(payload.key(), payload.found()))
                 .playToServer(DismountPayload.TYPE, DismountPayload.STREAM_CODEC,
                         (payload, context) -> {
                             Player player = context.player();

@@ -103,6 +103,8 @@ public class ae2lunyi {
                 (net.neoforged.neoforge.event.entity.player.PlayerEvent.PlayerLoggedInEvent event) -> {
                     if (event.getEntity() instanceof net.minecraft.server.level.ServerPlayer player) {
                         com.dianzhong.lunyi.compat.EggRepair.repair(player);
+                        // 每次进入游戏后，把之前没答案的 JEI 查询重发一次
+                        com.dianzhong.lunyi.compat.jei.JeiFallback.reaskAll();
                     }
                 });
         modEventBus.addListener(this::commonSetup);
