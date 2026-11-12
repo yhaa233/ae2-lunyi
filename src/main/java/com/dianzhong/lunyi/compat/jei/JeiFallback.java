@@ -83,6 +83,14 @@ public final class JeiFallback {
         }
     }
 
+    /** 调试用：强制查询一个物品（忽略冷却）。 */
+    public static void debugQuery(String itemId, net.minecraft.world.item.ItemStack stack) {
+        LAST_QUERY.remove(itemId);
+        CACHE.remove(itemId);
+        request(itemId, "item", itemId, stack.isEmpty() ? "" : stack.save(
+                net.minecraft.core.RegistryAccess.EMPTY).toString());
+    }
+
     public static void accept(String itemId, boolean found) {
         CACHE.put(itemId, new Entry(found, now()));
         PENDING.remove(itemId);

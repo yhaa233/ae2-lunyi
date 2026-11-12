@@ -76,6 +76,27 @@ public class ae2lunyi {
                 (net.neoforged.neoforge.event.RegisterCommandsEvent event) ->
                         event.getDispatcher().register(
                                 net.minecraft.commands.Commands.literal("ae2lunyi")
+                                        .then(net.minecraft.commands.Commands.literal("jei")
+                                                .then(net.minecraft.commands.Commands.argument("item",
+                                                                net.minecraft.commands.arguments.ResourceLocationArgument.id())
+                                                        .executes(context -> {
+                                                            var id = net.minecraft.commands.arguments.ResourceLocationArgument
+                                                                    .getId(context, "item");
+                                                            String key = id.toString();
+                                                            if (com.dianzhong.lunyi.compat.jei.JeiFallback.isCached(key)) {
+                                                                context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component
+                                                                        .literal("JEI 缓存结果: found=" + com.dianzhong.lunyi.compat.jei.JeiFallback.cachedFound(key)), false);
+                                                            } else {
+                                                                context.getSource().sendSuccess(() -> net.minecraft.network.chat.Component
+                                                                        .literal("已向客户端查询 " + key + "，稍后再执行一次查看结果"), false);
+                                                            }
+                                                            if (context.getSource().getEntity() instanceof net.minecraft.server.level.ServerPlayer sp) {
+                                                                com.dianzhong.lunyi.compat.jei.JeiFallback.debugQuery(key,
+                                                                        new net.minecraft.world.item.ItemStack(
+                                                                                net.minecraft.core.registries.BuiltInRegistries.ITEM.get(id)));
+                                                            }
+                                                            return 1;
+                                                        })))
                                         .then(net.minecraft.commands.Commands.literal("scan")
                                                 .requires(source -> source.hasPermission(2))
                                                 .executes(context -> {

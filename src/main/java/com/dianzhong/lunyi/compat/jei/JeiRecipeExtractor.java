@@ -2,23 +2,27 @@ package com.dianzhong.lunyi.compat.jei;
 
 import com.dianzhong.lunyi.ae2lunyi;
 
-import mezz.jei.api.ingredients.IIngredientType;
+import mezz.jei.api.ingredients.ITypedIngredient;
 import mezz.jei.api.recipe.IFocus;
 import mezz.jei.api.recipe.IFocusFactory;
 import mezz.jei.api.recipe.RecipeIngredientRole;
+import mezz.jei.api.runtime.IIngredientManager;
 import mezz.jei.api.runtime.IJeiRuntime;
 
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.fluids.FluidStack;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 
 /**
  * 客户端侧：请 JEI 判断“有没有产出这个原料的配方”。
  * <p>
- * 支持物品 / 流体 / 化学品（化学品用反射走 Mekanism 的 JEI 类型，避免编译期依赖）。
+ * 不再写死 JEI 的原料类型：而是构造若干可能的原料对象（原版物品栈、NeoForge 流体、
+ * Architectury 流体、Mekanism 化学品），再交给 JEI 的
+ * {@code createTypedIngredient} 自动识别类型。这样任何 JEI 能识别的包装都能覆盖。
  */
 public final class JeiRecipeExtractor {
     private JeiRecipeExtractor() {
@@ -30,75 +34,81 @@ public final class JeiRecipeExtractor {
             return false;
         }
         try {
-            IFocusFactory focusFactory = runtime.getJeiHelpers().getFocusFactory();
-            IFocus<?> focus = switch (kind) {
-                case "fluid" -> fluidFocus(focusFactory, id);
-                case "chemical" -> chemicalFocus(focusFactory, id);
-                default -> itemFocus(focusFactory, id);
-            };
-            if (focus == null) {
-                return false;
+            IIngredientManager manager = runtime.getIngredientManager();
+            IFocusFactory factory = runtime.getJeiHelpers().getFocusFactory();
+            for (Object candidate : candidates(kind, id)) {
+                if (candidate == null) {
+                    continue;
+                }
+                Optional<ITypedIngredient<Object>> typed = manager.createTypedIngredient(candidate);
+                if (typed.isEmpty()) {
+                    continue;
+                }
+                IFocus<?> focus = factory.createFocus(RecipeIngredientRole.OUTPUT, typed.get());
+                boolean found = manager != null && runtime.getRecipeManager()
+                        .createRecipeCategoryLookup()
+                        .limitFocus(List.of(focus))
+                        .get()
+                        .findAny()
+                        .isPresent();
+                if (found) {
+                    ae2lunyi.LOGGER.info("JEI fallback: {} matched as {}", id, typed.get().getType().getUid());
+                    return true;
+                }
             }
-            return runtime.getRecipeManager()
-                    .createRecipeCategoryLookup()
-                    .limitFocus(List.of(focus))
-                    .get()
-                    .findAny()
-                    .isPresent();
         } catch (Throwable t) {
             ae2lunyi.LOGGER.warn("JEI fallback: query failed for {}:{}", kind, id, t);
-            return false;
         }
+        return false;
     }
 
-    private static IFocus<?> itemFocus(IFocusFactory factory, String id) {
+    /** 依次构造同一原料在不同体系下的表示。 */
+    private static List<Object> candidates(String kind, String id) {
+        List<Object> out = new ArrayList<>();
         ResourceLocation rl = ResourceLocation.tryParse(id);
-        if (rl == null || !BuiltInRegistries.ITEM.containsKey(rl)) {
-            return null;
+        if (rl == null) {
+            return out;
         }
-        return factory.createFocus(RecipeIngredientRole.OUTPUT,
-                mezz.jei.api.constants.VanillaTypes.ITEM_STACK,
-                new ItemStack(BuiltInRegistries.ITEM.get(rl)));
-    }
-
-    private static IFocus<?> fluidFocus(IFocusFactory factory, String id) throws Exception {
-        ResourceLocation rl = ResourceLocation.tryParse(id);
-        if (rl == null || !BuiltInRegistries.FLUID.containsKey(rl)) {
-            return null;
-        }
-        FluidStack stack = new FluidStack(BuiltInRegistries.FLUID.get(rl), 1000);
-        // NeoForgeTypes 在某些 JEI 制品里不随 API 提供，这里反射取，避免编译期依赖
-        Class<?> types = Class.forName("mezz.jei.api.neoforge.NeoForgeTypes");
-        Object fluidType = types.getField("FLUID_STACK").get(null);
-        return factory.createFocus(RecipeIngredientRole.OUTPUT,
-                (IIngredientType<Object>) fluidType, stack);
-    }
-
-    /** 化学品：反射拿 Mekanism 的 ChemicalStack 与 JEI 类型。 */
-    private static IFocus<?> chemicalFocus(IFocusFactory factory, String id) throws Exception {
-        try {
-            Class<?> apiClass = Class.forName("mekanism.api.MekanismAPI");
-            Object registry = apiClass.getField("CHEMICAL_REGISTRY").get(null);
-            ResourceLocation rl = ResourceLocation.tryParse(id);
-            if (rl == null) {
-                return null;
+        switch (kind) {
+            case "fluid" -> {
+                if (!BuiltInRegistries.FLUID.containsKey(rl)) {
+                    return out;
+                }
+                var fluid = BuiltInRegistries.FLUID.get(rl);
+                // NeoForge
+                out.add(new net.neoforged.neoforge.fluids.FluidStack(fluid, 1000));
+                // Architectury（奥瑞科技等使用）
+                try {
+                    Class<?> cls = Class.forName("dev.architectury.fluid.FluidStack");
+                    out.add(cls.getMethod("create", net.minecraft.world.level.material.Fluid.class, long.class)
+                            .invoke(null, fluid, 1000L));
+                } catch (Throwable ignored) {
+                    // 没有 Architectury
+                }
             }
-            Object optional = registry.getClass().getMethod("get", ResourceLocation.class).invoke(registry, rl);
-            Object chemical = optional instanceof java.util.Optional<?> opt ? opt.orElse(null) : optional;
-            if (chemical == null) {
-                return null;
+            case "chemical" -> {
+                try {
+                    Class<?> apiClass = Class.forName("mekanism.api.MekanismAPI");
+                    Object registry = apiClass.getField("CHEMICAL_REGISTRY").get(null);
+                    Object optional = registry.getClass().getMethod("get", ResourceLocation.class)
+                            .invoke(registry, rl);
+                    Object chemical = optional instanceof Optional<?> opt ? opt.orElse(null) : optional;
+                    if (chemical != null) {
+                        Class<?> stackClass = Class.forName("mekanism.api.chemical.ChemicalStack");
+                        Class<?> chemicalClass = Class.forName("mekanism.api.chemical.Chemical");
+                        out.add(stackClass.getConstructor(chemicalClass, long.class)
+                                .newInstance(chemical, 1000L));
+                    }
+                } catch (Throwable ignored) {
+                    // 没有 Mekanism
+                }
             }
-            Class<?> stackClass = Class.forName("mekanism.api.chemical.ChemicalStack");
-            Object stack = stackClass.getConstructor(chemical.getClass().getInterfaces().length > 0
-                            ? Class.forName("mekanism.api.chemical.Chemical") : chemical.getClass(),
-                    1L <= 0 ? long.class : long.class)
-                    .newInstance(chemical, 1000L);
-            Class<?> jeiClass = Class.forName("mekanism.client.jei.MekanismJEI");
-            Object type = jeiClass.getField("TYPE_CHEMICAL").get(null);
-            return factory.createFocus(RecipeIngredientRole.OUTPUT,
-                    (IIngredientType<Object>) type, stack);
-        } catch (Throwable t) {
-            return null;
+            default -> {
+                if (BuiltInRegistries.ITEM.containsKey(rl)) {
+                    out.add(new ItemStack(BuiltInRegistries.ITEM.get(rl)));
+                }
+            }
         }
+        return out;
     }
 }
