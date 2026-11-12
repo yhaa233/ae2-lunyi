@@ -19,11 +19,11 @@ import java.util.List;
  * 即使任务中途被取消，这里的东西也不会丢——它仍然会在超时后交付。
  */
 public final class PendingDeliveries {
-    /** 连续多少 tick 没有新的推送，就认为这批合成结束了。 */
-    private static final int IDLE_TICKS = 20;
+    /** 连续多少 tick（0.25 秒）没有新的推送，就认为这批合成结束了。 */
+    private static final int IDLE_TICKS = 5;
 
-    /** 单个物品最多在队列里滞留这么多 tick，超过就强制交付，避免持续推送导致永不交付。 */
-    private static final int MAX_AGE_TICKS = 40;
+    /** 单个物品最多在队列里滞留这么多 tick（0.5 秒），超过就强制交付，避免持续推送导致永不交付。 */
+    private static final int MAX_AGE_TICKS = 10;
 
     private record Entry(IGrid grid, AEKey key, long amount, long lastTick, long createdAt) {
     }
